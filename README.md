@@ -2,19 +2,19 @@
 
 ## What this is
 
-Complex physical products require expert knowledge. For the Vulcan OmniPro 220, that knowledge is buried across a 48-page manual, setup diagrams, duty-cycle tables, troubleshooting matrices, weld photos, and process charts.
+The Vulcan OmniPro 220 is powerful, but it is not self-explanatory. Correct setup depends on process, polarity, gas, material, thickness, duty cycle, and weld symptoms.
 
-Manuals fail in the moment because they are not workflows. A user standing in a garage does not want to cross-reference polarity diagrams, amperage tables, and weld defect images before striking an arc.
+The manual contains the answers, but not in the form users need. Critical knowledge is split across diagrams, tables, troubleshooting matrices, weld photos, and process charts.
 
-OmniPro Assistant turns the manual into a usable support system. It answers questions, reasons over setup constraints, accepts uploaded weld images, and renders the right visual tool when text is the wrong interface.
+OmniPro Assistant turns that manual into a usable support agent. It answers questions, reasons over constraints, accepts weld images, and renders diagrams, checklists, calculators, or flows when text is the wrong interface.
 
 ## What makes this different
 
-- Converts manual knowledge into reasoning, not retrieval
-- Generates setup diagrams when wiring is spatial
-- Uses manual images, charts, and diagrams as first-class knowledge
-- Handles real constraints: indoor vs outdoor, gas vs no gas, material, thickness, process
-- Designed for someone actually setting up the machine in a garage
+- Manual knowledge becomes decisions, not search results
+- Visuals are selected by intent: diagram, calculator, checklist, flow, or image diagnosis
+- Manual images and charts are modeled as knowledge, not screenshots
+- Real setup constraints are first-class: location, gas, material, thickness, process
+- Built for garage use, where the next step matters more than a long explanation
 
 ## Demo
 
