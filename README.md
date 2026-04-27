@@ -1,137 +1,90 @@
-# OmniPro Assistant - Multimodal Welder Support Agent
+# OmniPro Assistant — Multimodal Technical Support Agent
 
-OmniPro Assistant is a local Next.js app for helping a non-expert use and troubleshoot the Vulcan OmniPro 220 welder. It answers practical questions from the welder manuals, supports uploaded images, and renders focused visual tools when the answer is easier to understand visually.
+## What this is
 
-The OmniPro 220 manual has the right information, but it is spread across setup diagrams, duty-cycle charts, process tables, troubleshooting pages, and safety notes. That makes it hard to answer garage-side questions like "which cable goes where?" or "why does this weld look wrong?" without flipping between sections.
+Complex physical products require expert knowledge. For the Vulcan OmniPro 220, that knowledge is buried across a 48-page manual, setup diagrams, duty-cycle tables, troubleshooting matrices, weld photos, and process charts.
 
-This project turns that manual into an interactive assistant. The agent combines manual text, structured facts, diagram knowledge, and image reasoning to give direct answers, show the relevant visual workspace, and ask targeted follow-up questions only when the missing detail matters.
+Manuals fail in the moment because they are not workflows. A user standing in a garage does not want to cross-reference polarity diagrams, amperage tables, and weld defect images before striking an arc.
 
-## Key Features
+OmniPro Assistant turns the manual into a usable support system. It answers questions, reasons over setup constraints, accepts uploaded weld images, and renders the right visual tool when text is the wrong interface.
 
-- Multimodal chat with text and image upload
-- Manual-grounded answers for the Vulcan OmniPro 220
-- Generated setup and polarity diagrams
-- Interactive duty cycle calculator and table
-- Troubleshooting flows for common weld problems
-- Process selection matrix for MIG, flux-core, TIG, and stick
-- Settings and configuration guidance
-- Manual image reasoning over diagrams, photos, and charts
-- Conversation handling for ambiguity and missing setup details
-- Garage Setup Tools: Quick Setup form, pre-weld checklists, and smart warnings
+## What makes this different
 
-## Architecture
+- Converts manual knowledge into reasoning, not retrieval
+- Generates setup diagrams when wiring is spatial
+- Uses manual images, charts, and diagrams as first-class knowledge
+- Handles real constraints: indoor vs outdoor, gas vs no gas, material, thickness, process
+- Designed for someone actually setting up the machine in a garage
 
-The app is intentionally small and easy to inspect.
+## Demo
 
-- `app/page.tsx` - Next.js app router frontend, chat UI, image upload, and visual workspace state
-- `app/api/chat/route.ts` - API route that runs the Claude reasoning path and returns structured output
-- `lib/manualKnowledge.ts` - structured manual facts for polarity, duty cycle, settings, and troubleshooting
-- `lib/manualVisualKnowledge.ts` and `lib/manualImageIndex.ts` - curated facts extracted from important manual diagrams, photos, and charts
-- `lib/outputPlanner.ts` - intent and visual planner that decides what kind of answer and artifact should be shown
-- `components/VisualWorkspace.tsx` - renders diagrams, tables, flows, diagnosis cards, and manual image references
-- `lib/agentResponse.ts` - response normalization and safety validation for setup-sensitive answers
+Hosted link: `<add hosted link>`
 
-Safety-critical polarity guidance is validated deterministically before it is returned. If a model response conflicts with known manual wiring facts, the deterministic answer wins.
+Video walkthrough: `<optional video link>`
 
-## How the Agent Works
+Try:
+
+- “What polarity setup do I need for TIG?”
+- “I’m welding outdoors with no gas. What should I use?”
+- “What’s the duty cycle at 200A on 240V?”
+- “I’m getting porosity. What should I check?”
+- Upload a weld image → “What defect is this?”
+
+## How the system works
 
 ```text
-User question + optional image
-  -> classify intent
-  -> gather manual text + visual facts
-  -> Claude reasoning
-  -> structured response
-  -> render chat answer + visual artifact
+User input (text + image)
+  -> classify intent: setup, troubleshooting, duty cycle, process choice, image diagnosis
+  -> retrieve structured knowledge: manual text + diagrams + tables
+  -> reason over constraints
+  -> generate structured output
+  -> render the right visual: diagram, checklist, calculator, flow, or image diagnosis
 ```
 
-Visuals are not decoration. The planner chooses them based on the question:
+Visuals are chosen intentionally. They are not added after the answer. If the task is wiring, the system draws wiring. If the task is duty cycle, it shows weld/rest time. If the task is troubleshooting, it gives a technician-style flow.
 
-- Polarity questions show setup diagrams.
-- Duty-cycle questions show the calculator/table.
-- Troubleshooting questions show guided checks.
-- Process-choice questions show the process matrix.
-- Uploaded weld images show diagnosis support and relevant manual references.
+## Design decisions
 
-## Design Decisions
+- **Diagrams instead of paragraphs**: polarity setup is spatial. Users need to see which cable goes into which socket.
+- **Troubleshooting flow**: weld defects are diagnosed by checking process, polarity, cleanliness, consumables, shielding, and technique in order.
+- **Quick Setup**: beginners should not have to know whether they need MIG, flux-core, TIG, or stick before asking for help.
+- **Warning system**: common mistakes are deterministic, so the app catches them directly: MIG without gas, flux-core with gas, wrong TIG polarity, continuous 200A welding.
+- **Pre-Weld Checklist**: before the arc starts, the user can verify polarity, gas, wire, feed roller, contact tip, and workpiece prep.
 
-- Diagrams are generated instead of only showing manual pages because users need the active cable path, polarity, and disconnected components called out clearly.
-- Duty cycle is rendered as a calculator/table because the useful answer is a time tradeoff, not a paragraph.
-- Troubleshooting is a guided flow because weld defects usually require checking process, polarity, cleanliness, consumables, and technique in order.
-- Ambiguous questions ask targeted clarifications when process, voltage, material, or thickness changes the answer.
-- Safety-critical setup facts are validated deterministically because cable polarity should not depend on model wording alone.
+## Knowledge representation
 
-## Garage Setup Tools
+- `lib/manualKnowledge.ts`: structured facts for polarity, duty cycle, settings, process selection, and troubleshooting
+- `lib/manualVisualKnowledge.ts`: extracted facts from diagrams, weld diagnosis images, setup illustrations, and charts
+- `lib/manualImageIndex.ts`: index of manual visuals and when to show them
+- `lib/quickSetup.ts`: deterministic garage setup rules for location, gas, material, and thickness
+- `lib/smartWarnings.ts`: lightweight warnings for high-risk setup mistakes
 
-Three lightweight artifacts make the assistant useful for someone actually setting up the welder, not just reading about it. They run on the existing chat + visual workspace pipeline — no new state machines, no backend persistence.
-
-- **Quick Setup**: A four-question form (location, gas, material, thickness) that returns a recommended process, wiring, gas, and the next step. Backed by deterministic rules in `lib/quickSetup.ts`, so the recommendation is reviewable. The result is injected as a normal assistant turn so visual history works on it.
-- **Pre-Weld Checklist**: A process-aware interactive checklist (`components/PreWeldChecklist.tsx`) shown in the workspace whenever the planner intent is `setup`/`polarity`/`settings_recommendation` and the process is known. Each item has a "Not sure?" hint grounded in the manual's polarity, gas, and consumable rules.
-- **Smart Warnings**: A deterministic detector (`lib/smartWarnings.ts`) that catches common mistakes from the user's message — flux-core with shielding gas, wrong MIG/TIG polarity, 200A continuous welding, etc. Up to two warnings are surfaced in the workspace and the top one is also pinned to the chat answer.
-
-## Demo Prompts
-
-- What's the duty cycle for MIG welding at 200A on 240V?
-- What polarity setup do I need for TIG welding?
-- I'm using flux-core wire without gas. Which cable goes where?
-- I'm getting porosity in my flux-cored welds. What should I check?
-- How do I choose between MIG, flux-core, TIG, and stick?
-- I'm welding 1/8 mild steel outdoors with no gas at 200A on 240V. Which process should I use, how should I wire it, and how can I weld longer?
-- Upload a weld image and ask: What specific defect is this, and what should I fix first?
+Some critical knowledge exists only in diagrams. This is explicitly modeled instead of treated as decoration.
 
 ## Setup
 
 ```bash
-git clone <repo-url>
-cd prox-challenge
-cp .env.example .env
-```
-
-Add your Anthropic API key to `.env`:
-
-```bash
-ANTHROPIC_API_KEY=your-api-key-here
-```
-
-Install dependencies and start the app:
-
-```bash
+git clone <your-fork>
+cd <your-fork>
+cp .env.example .env # add ANTHROPIC_API_KEY
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+## Why this matters
 
-The app runs locally with one API key.
+This is a small version of a technical product expert.
 
-## Environment Variables
+The same pattern can extend to HVAC systems, EV chargers, lab equipment, industrial tools, and any product where support depends on reading diagrams, interpreting symptoms, and applying setup rules.
 
-```bash
-ANTHROPIC_API_KEY=
-```
+The goal is to reduce dependence on human specialists by encoding their reasoning into a product-specific support system.
 
-Optional:
+## Future work
 
-```bash
-ANTHROPIC_MODEL=
-```
+- Richer visual reasoning over schematics and wiring overlays
+- Voice interface for field use
+- Deeper knowledge graph linking manuals, parts, symptoms, and field data
 
-If `ANTHROPIC_MODEL` is not set, the API route uses its default Claude model.
+## Final note
 
-## Available Scripts
-
-```bash
-npm run dev
-npm run build
-npm run start
-npm run lint
-```
-
-## Limitations and Future Work
-
-- Manual visual facts are curated for the most important diagrams, charts, and troubleshooting references.
-- Settings recommendations are conservative when the exact manual value is unavailable.
-- Future work could add deeper settings extraction, richer image overlays, and more complete schematic parsing.
-
-## Submission Notes
-
-The goal was to build something useful for a non-expert standing in a garage, not just a text chatbot. The assistant tries to answer directly, show the right supporting artifact, and keep setup-sensitive guidance tied to the manual.
+This was built with the goal of making a complex machine usable without reading a 48-page manual.
