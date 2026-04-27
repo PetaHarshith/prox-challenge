@@ -2,13 +2,15 @@
 
 import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Eye, ImagePlus, Loader2, Send, ShieldCheck, X } from "lucide-react";
+import { Eye, ImagePlus, Send, Wand2, X } from "lucide-react";
 import { SourceChips } from "@/components/SourceChips";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { VisualWorkspace } from "@/components/VisualWorkspace";
-import type { AgentResponse } from "@/lib/agentResponse";
+import { QuickSetupForm } from "@/components/QuickSetupForm";
+import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import type { ConversationState } from "@/lib/conversationState";
 import type { CachedResponseData } from "@/lib/prebuiltAnswers";
+import { recommendFromAnswers, type QuickSetupAnswers } from "@/lib/quickSetup";
 
 type ChatTurn = {
   id: string;
@@ -34,6 +36,49 @@ function hasWorkspaceVisuals(response?: CachedResponseData): boolean {
   return false;
 }
 
+// Builds a synthetic assistant response from the Quick Setup form so the
+// workspace gets a setup diagram + pre-weld checklist (and any deterministic
+// warnings) without an LLM call. Reuses the existing AgentResponse + VisualSpec
+// shapes so visual history and the workspace renderer keep working unchanged.
+function buildQuickSetupResponse(answers: QuickSetupAnswers): { question: string; response: CachedResponseData } {
+  const rec = recommendFromAnswers(answers);
+  const proc = rec.process;
+  const processLabel: Record<typeof proc, string> = {
+    mig: "MIG",
+    "flux-core": "Flux-core",
+    tig: "TIG",
+    stick: "Stick"
+  };
+  const summary = [
+    `Recommended process: **${processLabel[proc]}**.`,
+    "",
+    rec.why,
+    "",
+    `**Wiring:** ${rec.wiring}`,
+    `**Gas:** ${rec.gas}`,
+    "",
+    `**Next:** ${rec.next}`,
+    rec.dutyNote ? `\n_${rec.dutyNote}_` : "",
+    rec.followUp ? `\n${rec.followUp}` : ""
+  ].filter(Boolean).join("\n");
+
+  const visuals: VisualSpec[] = [
+    { kind: "setup_diagram", process: proc },
+    { kind: "pre_weld_checklist", process: proc, title: `${processLabel[proc]} pre-weld checklist` }
+  ];
+
+  const question = `Quick Setup: ${answers.location}, ${answers.hasGas === "yes" ? "with gas" : "no gas"}, ${answers.material}, ${answers.thickness}.`;
+  const response: CachedResponseData = {
+    answer: summary,
+    visualType: "polarity",
+    process: proc,
+    refs: [],
+    visuals,
+    usedModel: "quick-setup"
+  };
+  return { question, response };
+}
+
 const acceptedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 
 const suggestionChips = [
@@ -55,6 +100,24 @@ const suggestionChips = [
     prompt: "I'm setting up flux-core outdoors with no gas. Where exactly do my cables go?"
   }
 ];
+
+function loadingTextFor(question?: string, hasImage?: boolean) {
+  if (hasImage) return "Looking over the image...";
+  const text = question?.toLowerCase() ?? "";
+  if (/\bduty\b|\bhow long\b|\bcontinuous|overheat|thermal|200\s*a|240\s*v|120\s*v/.test(text)) {
+    return "Checking weld time and cooldown...";
+  }
+  if (/\bpolarity|setup|set ?up|cable|ground|torch|wire feed|electrode|connect|plug|hook/.test(text)) {
+    return "Mapping the cable setup...";
+  }
+  if (/\bporosity|spatter|pinholes?|wrong|bad weld|troubleshoot|burn|feed|bird.?nest/.test(text)) {
+    return "Tracing the likely cause...";
+  }
+  if (/\bwhich process|what process|choose|compare|outdoors|no gas|material|thickness/.test(text)) {
+    return "Picking the best process...";
+  }
+  return "Working through the answer...";
+}
 
 // Client-side session cache (cleared on page reload)
 const clientCache = new Map<string, CachedResponseData>();
@@ -96,14 +159,28 @@ export default function Home() {
   const [imagePreview, setImagePreview] = useState<string>();
   const [uploadError, setUploadError] = useState<string>();
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingPrompt, setLoadingPrompt] = useState<{ text: string; hasImage: boolean }>();
   const [conversationState, setConversationState] = useState<ConversationState>({});
   // Lightweight visual history: when the user clicks "View visual" on an older
   // assistant message, pin its turn id so the workspace shows that message's
   // saved visual payload. Cleared whenever a fresh assistant response arrives
   // so the latest answer always wins by default.
   const [pinnedTurnId, setPinnedTurnId] = useState<string | null>(null);
+  const [quickSetupOpen, setQuickSetupOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const activeRequestController = useRef<AbortController | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+
+  function handleQuickSetupSubmit(answers: QuickSetupAnswers) {
+    const { question, response } = buildQuickSetupResponse(answers);
+    setTurns((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "user", content: question },
+      { id: crypto.randomUUID(), role: "assistant", content: response.answer, response }
+    ]);
+    setQuickSetupOpen(false);
+  }
 
   const apiMessages = useMemo(
     () =>
@@ -166,6 +243,7 @@ export default function Home() {
     };
 
     setTurns((current) => [...current, userTurn]);
+    setLoadingPrompt({ text: prompt.trim(), hasImage: Boolean(imagePreview) });
     setInput("");
     setImagePreview(undefined);
     setUploadError(undefined);
@@ -247,8 +325,13 @@ export default function Home() {
     } finally {
       activeRequestController.current = null;
       setIsLoading(false);
+      setLoadingPrompt(undefined);
     }
   }
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns.length, isLoading]);
 
   function stopPrompt() {
     activeRequestController.current?.abort();
@@ -271,26 +354,22 @@ export default function Home() {
   }
 
   return (
-    <main className="flex h-screen min-h-[720px] flex-col bg-[#f4f5f7] text-zinc-950">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-zinc-200 bg-white px-5">
+    <main className="flex h-screen min-h-[720px] flex-col bg-[radial-gradient(circle_at_top_left,#fff1e7_0,#f7fafc_34%,#e7edf1_100%)] text-slate-950">
+      <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-900/10 bg-[#18212b] px-5 text-white shadow-lg shadow-slate-900/10">
         <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-zinc-950 text-sm font-black text-white">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-torch text-sm font-black text-white shadow-md shadow-orange-950/30">
             220
           </div>
           <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold">Vulcan OmniPro 220 Assistant</h1>
-            <p className="truncate text-xs text-zinc-500">Conversational technical guidance and visual setup reference</p>
+            <h1 className="truncate text-base font-semibold text-white">Vulcan OmniPro 220 Assistant</h1>
+            <p className="truncate text-xs text-slate-300">Garage setup, troubleshooting, and visual weld guidance</p>
           </div>
-        </div>
-        <div className="hidden items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 sm:flex">
-          <ShieldCheck size={14} />
-          Claude + manual retrieval
         </div>
       </header>
 
       <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,1fr)]">
-        <section className="flex min-h-0 flex-col bg-[#f7f7f8]">
-          <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        <section className="flex min-h-0 flex-col bg-transparent">
+          <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
             <div className="mx-auto max-w-4xl space-y-4">
               {turns.map((turn) => {
                 const turnHasVisuals = turn.role === "assistant" && hasWorkspaceVisuals(turn.response);
@@ -301,8 +380,8 @@ export default function Home() {
                     <div
                       className={
                         turn.role === "user"
-                          ? "max-w-[82%] rounded-lg bg-zinc-950 px-4 py-3 text-white shadow-sm"
-                          : `max-w-[88%] rounded-lg border bg-white px-4 py-3 text-zinc-900 shadow-sm ${isPinned ? "border-torch ring-1 ring-torch/30" : "border-zinc-200"}`
+                          ? "max-w-[82%] rounded-lg bg-[#223142] px-4 py-3 text-white shadow-md shadow-slate-900/10"
+                          : `max-w-[88%] rounded-lg border bg-white/95 px-4 py-3 text-slate-900 shadow-sm backdrop-blur ${isPinned ? "border-torch ring-1 ring-torch/30" : "border-slate-200"}`
                       }
                     >
                       {turn.role === "user" ? (
@@ -349,25 +428,34 @@ export default function Home() {
                 );
               })}
               {isLoading ? (
-                <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 shadow-sm">
-                  <Loader2 size={16} className="animate-spin" />
-                  Checking pre-indexed knowledge...
-                </div>
+                <ThinkingBubble label={loadingTextFor(loadingPrompt?.text, loadingPrompt?.hasImage)} />
               ) : null}
+              <div ref={bottomRef} />
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="border-t border-zinc-200 bg-white p-4">
+          <form onSubmit={handleSubmit} className="border-t border-white/70 bg-white/70 p-4 shadow-[0_-18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
             <div className="mx-auto max-w-4xl">
-              <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                <div className="mb-3 flex flex-wrap gap-2">
+              <div className="rounded-xl border border-white/80 bg-white/90 p-3 shadow-panel">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => setQuickSetupOpen(true)}
+                    className="inline-flex items-center gap-2 rounded-full border border-orange-500 bg-white px-3.5 py-1.5 text-xs font-black text-orange-700 shadow-sm shadow-orange-900/10 ring-2 ring-orange-100 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-torch text-white">
+                      <Wand2 size={12} />
+                    </span>
+                    Quick Setup
+                  </button>
                   {suggestionChips.map((chip) => (
                     <button
                       key={chip.label}
                       type="button"
                       disabled={isLoading}
                       onClick={() => void submitPrompt(chip.prompt)}
-                      className="rounded-full border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700 hover:border-zinc-400 hover:bg-zinc-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {chip.label}
                     </button>
@@ -391,7 +479,7 @@ export default function Home() {
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+                    className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
                     aria-label="Attach image"
                   >
                     <ImagePlus size={20} />
@@ -407,13 +495,13 @@ export default function Home() {
                     }}
                     rows={1}
                     placeholder="Ask about polarity, duty cycle, wire loading, porosity..."
-                    className="min-h-12 flex-1 resize-none rounded-md border border-zinc-300 bg-white px-3 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                    className="min-h-12 flex-1 resize-none rounded-md border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-torch focus:ring-2 focus:ring-orange-100"
                   />
                   {isLoading ? (
                     <button
                       type="button"
                       onClick={stopPrompt}
-                      className="inline-flex h-12 items-center gap-2 rounded-md bg-zinc-900 px-4 text-sm font-semibold text-white hover:bg-zinc-700"
+                      className="inline-flex h-12 items-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700"
                     >
                       <X size={17} />
                       Stop
@@ -422,7 +510,7 @@ export default function Home() {
                     <button
                       type="submit"
                       disabled={!input.trim()}
-                      className="inline-flex h-12 items-center gap-2 rounded-md bg-torch px-4 text-sm font-semibold text-white hover:bg-[#c94114] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-12 items-center gap-2 rounded-md bg-torch px-4 text-sm font-semibold text-white shadow-sm shadow-orange-900/20 hover:bg-[#c94114] disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Send size={17} />
                       Send
@@ -440,6 +528,24 @@ export default function Home() {
           isLoading={isLoading && !pinnedTurnId}
         />
       </div>
+      <QuickSetupForm
+        open={quickSetupOpen}
+        onClose={() => setQuickSetupOpen(false)}
+        onSubmit={handleQuickSetupSubmit}
+      />
     </main>
+  );
+}
+
+function ThinkingBubble({ label }: { label: string }) {
+  return (
+    <div className="inline-flex items-center gap-3 rounded-lg border border-orange-100 bg-white/95 px-4 py-3 text-sm text-slate-700 shadow-sm">
+      <span className="flex items-end gap-1" aria-hidden>
+        <span className="h-2 w-2 animate-bounce rounded-full bg-torch" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-orange-400 [animation-delay:120ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-amber-400 [animation-delay:240ms]" />
+      </span>
+      <span className="font-medium">{label}</span>
+    </div>
   );
 }

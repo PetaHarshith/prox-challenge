@@ -75,16 +75,16 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
   const secondaryPolarity = process === "stick" ? "+" : "−";
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-5">
+    <section className="rounded-lg border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-orange-50/40 p-5 shadow-sm">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-base font-semibold text-zinc-950">{config.title}</h3>
-          <p className="text-sm text-zinc-600">
+          <h3 className="text-base font-semibold text-slate-950">{config.title}</h3>
+          <p className="text-sm text-slate-600">
             Positive: {setup.positive}. Negative: {setup.negative}.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full bg-zinc-100 px-3 py-1 text-xs font-semibold text-zinc-700">{config.badge}</span>
+          <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">{config.badge}</span>
           {config.warning ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">{config.warning}</span> : null}
         </div>
       </div>
@@ -183,7 +183,7 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
         ) : null}
       </svg>
 
-      <div className="mt-4 space-y-2 rounded-md bg-zinc-50 p-3 text-xs font-medium text-zinc-700">
+      <div className="mt-4 space-y-2 rounded-md border border-slate-200 bg-white/80 p-3 text-xs font-medium text-slate-700">
         <p><strong>Ground</strong> → {setup.positive.toLowerCase().includes("ground") ? "+" : "−"}</p>
         <p><strong>{secondaryConnectorLabel}</strong> → {secondaryPolarity}</p>
         {config.warning ? <p className="text-amber-700">{config.warning}</p> : null}

@@ -12,6 +12,8 @@ import {
   retrieveManualContext,
   troubleshootingChecks
 } from "./manualKnowledge";
+import type { ChecklistItem } from "./quickSetup";
+import type { SmartWarning } from "./smartWarnings";
 
 export const AgentResponseSchema = z.object({
   answer: z.string(),
@@ -146,7 +148,14 @@ export type VisualSpec =
     kind: "image_diagnosis";
     diagnosis: NonNullable<ParsedAgentResponse["imageDiagnosis"]>;
     reference?: { title: string; page?: string };
-  };
+  }
+  | {
+    kind: "pre_weld_checklist";
+    process: Exclude<WeldProcess, "unknown">;
+    items?: ChecklistItem[];
+    title?: string;
+  }
+  | { kind: "warnings"; warnings: SmartWarning[] };
 
 export type AgentResponse = Omit<ParsedAgentResponse, "manualImages"> & {
   dutyCycleRows?: DutyCycleRow[];

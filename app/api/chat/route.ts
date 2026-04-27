@@ -5,7 +5,7 @@ import { agentToolNames } from "@/lib/claudeAgent";
 import { nextConversationState, resolveConversationalQuestion, type ConversationState } from "@/lib/conversationState";
 import { retrieveManualContext, manualImages, processManualImageIndex, type ManualImage, type WeldProcess } from "@/lib/manualKnowledge";
 import { findManualImageById, getManualImageRef } from "@/lib/manualImageIndex";
-import { planOutput, planVisuals, structuredCacheKey, type PlannerVisualType } from "@/lib/outputPlanner";
+import { planOutput, planVisuals, structuredCacheKey, type PlannerIntent, type PlannerVisualType } from "@/lib/outputPlanner";
 import type { VisualType } from "@/lib/manualKnowledge";
 import {
   getImageInterpretation,
@@ -13,6 +13,7 @@ import {
   getVisualKnowledgeForIntent,
   weldDiagnosisKnowledge
 } from "@/lib/manualVisualKnowledge";
+import { detectSmartWarnings } from "@/lib/smartWarnings";
 
 export const runtime = "nodejs";
 
@@ -161,6 +162,35 @@ function buildVisualsFromPlan(
   return out;
 }
 
+// Garage Setup Tools: append a pre-weld checklist (only when the planner is
+// confident about the process and the intent is setup-related) and a warnings
+// card (only when the deterministic detector finds something). Both are
+// additive — they never replace the primary visual or the text answer.
+function augmentVisualsWithGarageTools(
+  visuals: VisualSpec[],
+  intent: PlannerIntent,
+  process: WeldProcess,
+  message: string,
+  warnings: ReturnType<typeof detectSmartWarnings>
+): VisualSpec[] {
+  const out = [...visuals];
+  const hasChecklist = out.some((v) => v.kind === "pre_weld_checklist");
+  const setupLikeIntent: PlannerIntent[] = ["setup", "polarity", "settings_recommendation"];
+  if (!hasChecklist && setupLikeIntent.includes(intent) && process !== "unknown") {
+    const setupIndex = out.findIndex((v) => v.kind === "setup_diagram");
+    const checklist: VisualSpec = { kind: "pre_weld_checklist", process };
+    if (setupIndex >= 0) {
+      out.splice(setupIndex + 1, 0, checklist);
+    } else {
+      out.push(checklist);
+    }
+  }
+  if (warnings.length) {
+    out.unshift({ kind: "warnings", warnings });
+  }
+  return out;
+}
+
 type ChatMessage = {
   role: "user" | "assistant";
   content: string;
@@ -286,7 +316,18 @@ export async function POST(request: Request) {
       manualImages: localImage ? [localImage] : fallback.manualImages
     };
     const localPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
-    const localVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
+    const localBaseVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
+    const localWarnings = detectSmartWarnings(question, localResponse.process);
+    const localVisuals = augmentVisualsWithGarageTools(
+      localBaseVisuals,
+      outputPlan.intent,
+      localResponse.process,
+      question,
+      localWarnings
+    );
+    if (localWarnings.length && !localResponse.highlights?.warning) {
+      localResponse.highlights = { ...(localResponse.highlights ?? {}), warning: localWarnings[0].text };
+    }
     const responseData = {
       ...localResponse,
       outputPlan,
@@ -489,7 +530,18 @@ export async function POST(request: Request) {
     // Always rebuild the visuals[] from the live plan so the workspace cannot
     // carry a stale visual from a prior turn.
     const plannedVisuals = planVisuals(question, Boolean(body.image?.data));
-    response.visuals = buildVisualsFromPlan(plannedVisuals, response, question);
+    const baseVisuals = buildVisualsFromPlan(plannedVisuals, response, question);
+    const warnings = detectSmartWarnings(question, response.process);
+    response.visuals = augmentVisualsWithGarageTools(
+      baseVisuals,
+      outputPlan.intent,
+      response.process,
+      question,
+      warnings
+    );
+    if (warnings.length && !response.highlights?.warning) {
+      response.highlights = { ...(response.highlights ?? {}), warning: warnings[0].text };
+    }
     const conversationState = nextConversationState(question, response, body.conversationState, resolved);
 
     return NextResponse.json({
@@ -501,7 +553,15 @@ export async function POST(request: Request) {
   } catch (error) {
     console.error(error);
     const fallbackPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
-    const fallbackVisuals = buildVisualsFromPlan(fallbackPlannedVisuals, fallback, question);
+    const fallbackBaseVisuals = buildVisualsFromPlan(fallbackPlannedVisuals, fallback, question);
+    const fallbackWarnings = detectSmartWarnings(question, fallback.process);
+    const fallbackVisuals = augmentVisualsWithGarageTools(
+      fallbackBaseVisuals,
+      outputPlan.intent,
+      fallback.process,
+      question,
+      fallbackWarnings
+    );
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
     return NextResponse.json(
       {

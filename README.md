@@ -17,6 +17,7 @@ This project turns that manual into an interactive assistant. The agent combines
 - Settings and configuration guidance
 - Manual image reasoning over diagrams, photos, and charts
 - Conversation handling for ambiguity and missing setup details
+- Garage Setup Tools: Quick Setup form, pre-weld checklists, and smart warnings
 
 ## Architecture
 
@@ -58,6 +59,14 @@ Visuals are not decoration. The planner chooses them based on the question:
 - Troubleshooting is a guided flow because weld defects usually require checking process, polarity, cleanliness, consumables, and technique in order.
 - Ambiguous questions ask targeted clarifications when process, voltage, material, or thickness changes the answer.
 - Safety-critical setup facts are validated deterministically because cable polarity should not depend on model wording alone.
+
+## Garage Setup Tools
+
+Three lightweight artifacts make the assistant useful for someone actually setting up the welder, not just reading about it. They run on the existing chat + visual workspace pipeline — no new state machines, no backend persistence.
+
+- **Quick Setup**: A four-question form (location, gas, material, thickness) that returns a recommended process, wiring, gas, and the next step. Backed by deterministic rules in `lib/quickSetup.ts`, so the recommendation is reviewable. The result is injected as a normal assistant turn so visual history works on it.
+- **Pre-Weld Checklist**: A process-aware interactive checklist (`components/PreWeldChecklist.tsx`) shown in the workspace whenever the planner intent is `setup`/`polarity`/`settings_recommendation` and the process is known. Each item has a "Not sure?" hint grounded in the manual's polarity, gas, and consumable rules.
+- **Smart Warnings**: A deterministic detector (`lib/smartWarnings.ts`) that catches common mistakes from the user's message — flux-core with shielding gas, wrong MIG/TIG polarity, 200A continuous welding, etc. Up to two warnings are surfaced in the workspace and the top one is also pinned to the chat answer.
 
 ## Demo Prompts
 

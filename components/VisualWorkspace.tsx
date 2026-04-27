@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { BookOpen, Cable, Clock3, FileImage, Gauge, Loader2, SlidersHorizontal } from "lucide-react";
+import { Cable, Clock3, FileImage, Gauge, Loader2, SlidersHorizontal } from "lucide-react";
 import { CustomSetupDiagram } from "@/components/CustomSetupDiagram";
 import { DutyCycleCard } from "@/components/DutyCycleCard";
 import { ManualImageCard } from "@/components/ManualImageCard";
@@ -10,6 +10,8 @@ import { ImageDiagnosisPanel } from "@/components/ImageDiagnosisPanel";
 import { ProcessSelectionMatrix } from "@/components/ProcessSelectionMatrix";
 import { SettingsRecommendationCard } from "@/components/SettingsRecommendationCard";
 import { TroubleshootingFlow } from "@/components/TroubleshootingFlow";
+import { PreWeldChecklist } from "@/components/PreWeldChecklist";
+import { WarningCard } from "@/components/WarningCard";
 import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import { dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
 
@@ -52,22 +54,21 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
   ];
 
   return (
-    <aside className="flex min-h-0 flex-col border-t border-zinc-200 bg-white xl:border-l xl:border-t-0">
-      <div className="border-b border-zinc-200 px-4 py-3">
+    <aside className="flex min-h-0 flex-col border-t border-white/70 bg-white/90 shadow-[-22px_0_70px_rgba(15,23,42,0.08)] backdrop-blur xl:border-l xl:border-t-0">
+      <div className="border-b border-slate-200/80 bg-white/70 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-zinc-950">Visual workspace</h2>
-            <p className="text-xs text-zinc-500">Diagrams, manual pages, and calculators</p>
+            <h2 className="text-sm font-semibold text-slate-950">Visual workspace</h2>
+            <p className="text-xs text-slate-500">Diagrams, checklists, and calculators</p>
           </div>
-          <BookOpen size={18} className="text-torch" />
         </div>
-        <div className="mt-3 grid grid-cols-4 rounded-md bg-zinc-100 p-1">
+        <div className="mt-3 grid grid-cols-4 rounded-md bg-slate-100 p-1">
           {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setTab(item.id)}
-              className={`inline-flex h-8 items-center justify-center gap-1 rounded px-2 text-xs font-semibold ${tab === item.id ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-500 hover:text-zinc-950"
+              className={`inline-flex h-8 items-center justify-center gap-1 rounded px-2 text-xs font-semibold ${tab === item.id ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950"
                 }`}
             >
               {item.icon}
@@ -267,7 +268,7 @@ function WorkspaceSection({ children, refs, title }: { children: ReactNode; refs
   return (
     <section className="space-y-3">
       <div className="flex items-end justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-zinc-500">{title}</h3>
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
       </div>
       {children}
       {refs?.length ? <SourceSummary refs={refs} /> : null}
@@ -277,11 +278,11 @@ function WorkspaceSection({ children, refs, title }: { children: ReactNode; refs
 
 function SourceSummary({ refs }: { refs: ManualRef[] }) {
   return (
-    <div className="rounded-md border border-zinc-200 bg-zinc-50 px-3 py-2 text-xs leading-5 text-zinc-600">
-      <span className="font-semibold text-zinc-800">Sources: </span>
+    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+      <span className="font-semibold text-slate-800">Sources: </span>
       {refs.map((ref, index) => (
         <span key={`${ref.source}-${ref.title}`}>
-          <a href={ref.url} target="_blank" rel="noreferrer" className="font-medium text-zinc-700 underline decoration-zinc-300 underline-offset-2">
+          <a href={ref.url} target="_blank" rel="noreferrer" className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2">
             {ref.source}
             {ref.page ? ` p.${ref.page}` : ""}
           </a>
@@ -294,16 +295,16 @@ function SourceSummary({ refs }: { refs: ManualRef[] }) {
 
 function EmptyWorkspace() {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4">
+    <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
       <div className="mb-2 flex items-center gap-2">
         <Gauge size={17} className="text-torch" />
-        <h3 className="text-sm font-semibold text-zinc-950">Workspace preview</h3>
+        <h3 className="text-sm font-semibold text-slate-950">Workspace preview</h3>
       </div>
-      <p className="text-sm leading-6 text-zinc-700">
+      <p className="text-sm leading-6 text-slate-700">
         Ask a setup, duty-cycle, troubleshooting, or settings question to render the matching diagram, manual page, checklist,
         or calculator here.
       </p>
-      <p className="mt-3 text-xs leading-5 text-zinc-500">
+      <p className="mt-3 text-xs leading-5 text-slate-500">
         This panel follows the chat and updates when the assistant returns visual or tabular guidance.
       </p>
     </div>
@@ -312,9 +313,13 @@ function EmptyWorkspace() {
 
 function LoadingWorkspace() {
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
-      <Loader2 size={16} className="animate-spin text-torch" />
-      Building visuals for your question...
+    <div className="flex items-center gap-3 rounded-lg border border-orange-100 bg-white/90 p-4 text-sm text-slate-700 shadow-sm">
+      <div className="relative h-8 w-8 shrink-0 rounded-full bg-orange-50">
+        <div className="absolute inset-1 rounded-full border-2 border-orange-200" />
+        <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full bg-torch" />
+        <Loader2 size={18} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin text-torch" />
+      </div>
+      Drawing the right visual...
     </div>
   );
 }
@@ -376,6 +381,20 @@ function VisualSpecRenderer({
     return (
       <WorkspaceSection title="Image Diagnosis" refs={refs}>
         <ImageDiagnosisPanel diagnosis={spec.diagnosis} reference={spec.reference} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "pre_weld_checklist") {
+    return (
+      <WorkspaceSection title="Pre-Weld Checklist" refs={refs}>
+        <PreWeldChecklist process={spec.process} items={spec.items} title={spec.title} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "warnings") {
+    return (
+      <WorkspaceSection title="Warnings">
+        <WarningCard warnings={spec.warnings} />
       </WorkspaceSection>
     );
   }
