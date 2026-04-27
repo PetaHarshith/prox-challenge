@@ -1,163 +1,128 @@
-# Vulcan OmniPro 220 Multimodal Reasoning Assistant
+# OmniPro Assistant - Multimodal Welder Support Agent
 
-This app is a Next.js garage-side agent for the Prox challenge. It combines:
+OmniPro Assistant is a local Next.js app for helping a non-expert use and troubleshoot the Vulcan OmniPro 220 welder. It answers practical questions from the welder manuals, supports uploaded images, and renders focused visual tools when the answer is easier to understand visually.
 
-- structured manual facts
-- indexed manual visual knowledge
-- planner-driven output selection
-- optional Claude vision reasoning for uploads
-- deterministic safety checks for polarity/setup
+The OmniPro 220 manual has the right information, but it is spread across setup diagrams, duty-cycle charts, process tables, troubleshooting pages, and safety notes. That makes it hard to answer garage-side questions like "which cable goes where?" or "why does this weld look wrong?" without flipping between sections.
 
-Goal: **read, think, and show** the answer clearly.
+This project turns that manual into an interactive assistant. The agent combines manual text, structured facts, diagram knowledge, and image reasoning to give direct answers, show the relevant visual workspace, and ask targeted follow-up questions only when the missing detail matters.
+
+## Key Features
+
+- Multimodal chat with text and image upload
+- Manual-grounded answers for the Vulcan OmniPro 220
+- Generated setup and polarity diagrams
+- Interactive duty cycle calculator and table
+- Troubleshooting flows for common weld problems
+- Process selection matrix for MIG, flux-core, TIG, and stick
+- Settings and configuration guidance
+- Manual image reasoning over diagrams, photos, and charts
+- Conversation handling for ambiguity and missing setup details
 
 ## Architecture
 
+The app is intentionally small and easy to inspect.
+
+- `app/page.tsx` - Next.js app router frontend, chat UI, image upload, and visual workspace state
+- `app/api/chat/route.ts` - API route that runs the Claude reasoning path and returns structured output
+- `lib/manualKnowledge.ts` - structured manual facts for polarity, duty cycle, settings, and troubleshooting
+- `lib/manualVisualKnowledge.ts` and `lib/manualImageIndex.ts` - curated facts extracted from important manual diagrams, photos, and charts
+- `lib/outputPlanner.ts` - intent and visual planner that decides what kind of answer and artifact should be shown
+- `components/VisualWorkspace.tsx` - renders diagrams, tables, flows, diagnosis cards, and manual image references
+- `lib/agentResponse.ts` - response normalization and safety validation for setup-sensitive answers
+
+Safety-critical polarity guidance is validated deterministically before it is returned. If a model response conflicts with known manual wiring facts, the deterministic answer wins.
+
+## How the Agent Works
+
 ```text
-app/page.tsx                        Chat UX + image upload + stop button
-app/api/chat/route.ts               Main reasoning pipeline
-lib/manualKnowledge.ts              Core manual facts (polarity/duty/settings/troubleshooting)
-lib/manualImageIndex.ts             Structured visual knowledge index (manual pages/images)
-lib/outputPlanner.ts                Intent + visual planner and structured cache key
-lib/agentResponse.ts                Response schema + normalization + safety validation
-lib/conversationState.ts            Clarification state (process/material/thickness)
-components/VisualWorkspace.tsx      Planner-driven visual rendering
-components/CustomSetupDiagram.tsx   Setup/polarity diagram (highlighted connections)
-components/DutyCycleCard.tsx        Duty matrix with highlighted row + weld/rest indicator
-components/ProcessSelectionMatrix.tsx Process comparison matrix
-components/TroubleshootingFlow.tsx  Troubleshooting flow/checklist
-components/SettingsRecommendationCard.tsx Settings card with exact/closest guidance
-components/ImageDiagnosisPanel.tsx  Upload image diagnosis results
-components/ManualImageCard.tsx      Manual page reference card
+User question + optional image
+  -> classify intent
+  -> gather manual text + visual facts
+  -> Claude reasoning
+  -> structured response
+  -> render chat answer + visual artifact
 ```
 
-## Request Pipeline
+Visuals are not decoration. The planner chooses them based on the question:
 
-1. User message (and optional image) is posted to `/api/chat`.
-2. `outputPlanner` determines intent, visual type, required facts, and whether vision is needed.
-3. System checks deterministic paths:
-   - prebuilt intents
-   - structured cache key: `intent|process|voltage|amperage|material|thickness`
-   - direct knowledge retrieval
-4. If needed, Claude is called with:
-   - manual text context
-   - manual image extracted facts from `manualImageIndex`
-   - strict output JSON contract
-5. If upload exists and planner requests vision, image is classified (weld defect / wiring / front panel / wire feed / unknown).
-6. `normalizeAgentResponse` enforces answer-first style and validates safety-critical polarity facts.
-7. UI renders visual artifact matching the plan (matrix/diagram/checklist/diagnosis card).
+- Polarity questions show setup diagrams.
+- Duty-cycle questions show the calculator/table.
+- Troubleshooting questions show guided checks.
+- Process-choice questions show the process matrix.
+- Uploaded weld images show diagnosis support and relevant manual references.
 
-## Multimodal Knowledge
+## Design Decisions
 
-### `manualKnowledge`
-Contains deterministic facts:
+- Diagrams are generated instead of only showing manual pages because users need the active cable path, polarity, and disconnected components called out clearly.
+- Duty cycle is rendered as a calculator/table because the useful answer is a time tradeoff, not a paragraph.
+- Troubleshooting is a guided flow because weld defects usually require checking process, polarity, cleanliness, consumables, and technique in order.
+- Ambiguous questions ask targeted clarifications when process, voltage, material, or thickness changes the answer.
+- Safety-critical setup facts are validated deterministically because cable polarity should not depend on model wording alone.
 
-- polarity mappings per process
-- duty cycle rows
-- troubleshooting checks
-- settings guidance
+## Demo Prompts
 
-### `manualImageIndex`
-Adds visual facts for key pages:
+- What's the duty cycle for MIG welding at 200A on 240V?
+- What polarity setup do I need for TIG welding?
+- I'm using flux-core wire without gas. Which cable goes where?
+- I'm getting porosity in my flux-cored welds. What should I check?
+- How do I choose between MIG, flux-core, TIG, and stick?
+- I'm welding 1/8 mild steel outdoors with no gas at 200A on 240V. Which process should I use, how should I wire it, and how can I weld longer?
+- Upload a weld image and ask: What specific defect is this, and what should I fix first?
 
-- front panel controls
-- wire-feed interior / quick wire loading
-- MIG / flux-core / TIG / stick setup diagrams
-- duty chart
-- weld diagnosis page
-- process selection chart
-
-Each entry includes:
-
-- id, title, source, page, imagePath
-- visual description + key labels
-- related intents/processes
-- extracted facts
-- when to show it
-
-This allows the agent to reason over image-derived manual facts, not just display image cards.
-
-## Output Planner
-
-`lib/outputPlanner.ts` maps message + context into:
-
-- intent
-- process
-- requiredFacts
-- visualType
-- visualId
-- needsClaudeVision
-- needsClarification + clarificationQuestion
-
-Visual types:
-
-- `setup_diagram`
-- `duty_cycle_matrix`
-- `process_selection_matrix`
-- `settings_card`
-- `troubleshooting_flow`
-- `image_diagnosis_panel`
-- `manual_image_card`
-- `none`
-
-## Safety Validation
-
-Before returning polarity/setup guidance, safety facts are validated.
-If model output conflicts, deterministic templates replace the answer.
-
-Validated mappings:
-
-- TIG: ground clamp `+`, TIG torch `-`, wire feed disconnected
-- Flux-core: ground clamp `+`, wire feed `-`
-- MIG gas: ground clamp `-`, wire feed `+`, gas required
-- Stick: ground clamp `-`, electrode holder `+`, wire feed disconnected
-
-## Visual Confirmation Behavior
-
-Visuals are never generic. They confirm the answer:
-
-- Duty cycle: highlighted row + weld/rest indicator
-- Setup: highlighted sockets/connections + disconnected warnings
-- Process selection: highlighted recommended process
-- Troubleshooting: first checks emphasized
-- Image uploads: diagnosis panel with clues/checks/fixes/confidence
-
-## Chat Response Style
-
-Responses follow practical structure:
-
-- direct answer first
-- short steps
-- common mistake
-- next action
-- sources as secondary references
-
-## Run in Under 2 Minutes
+## Setup
 
 ```bash
+git clone <repo-url>
+cd prox-challenge
 cp .env.example .env
-# add ANTHROPIC_API_KEY
+```
+
+Add your Anthropic API key to `.env`:
+
+```bash
+ANTHROPIC_API_KEY=your-api-key-here
+```
+
+Install dependencies and start the app:
+
+```bash
 npm install
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3000](http://localhost:3000).
 
-## Validation Commands
+The app runs locally with one API key.
+
+## Environment Variables
 
 ```bash
-npm run lint
-npm run build
+ANTHROPIC_API_KEY=
 ```
 
-## Tested Prompts
+Optional:
 
-- What’s the duty cycle for MIG welding at 200A on 240V?
-- If I weld continuously at 200A, when do I need to stop?
-- What polarity setup do I need for TIG welding?
-- I’m using flux-core wire without gas. Which cable goes where?
-- I’m getting porosity in my flux-cored welds. What should I check?
-- How do I load the wire spool?
-- How do I choose between MIG, flux-core, TIG, and stick?
-- What settings should I use for 1/8 inch mild steel?
-- Upload a weld bead photo and diagnose it.
-- Upload a front panel photo and explain what I’m looking at.
+```bash
+ANTHROPIC_MODEL=
+```
+
+If `ANTHROPIC_MODEL` is not set, the API route uses its default Claude model.
+
+## Available Scripts
+
+```bash
+npm run dev
+npm run build
+npm run start
+npm run lint
+```
+
+## Limitations and Future Work
+
+- Manual visual facts are curated for the most important diagrams, charts, and troubleshooting references.
+- Settings recommendations are conservative when the exact manual value is unavailable.
+- Future work could add deeper settings extraction, richer image overlays, and more complete schematic parsing.
+
+## Submission Notes
+
+The goal was to build something useful for a non-expert standing in a garage, not just a text chatbot. The assistant tries to answer directly, show the right supporting artifact, and keep setup-sensitive guidance tied to the manual.
