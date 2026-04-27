@@ -781,3 +781,382 @@ export function tryDirectResponse(input: string): DirectResponse | null {
 
   return null;
 }
+
+
+// =============================================================================
+// Document-grounded KB modules. Every entry carries a doc + page citation so
+// answers can be reconstructed from the manuals without inventing values.
+// Sources: Owner's Manual (p.7 Specs, p.10–17 Wire Feed, p.13/14/24/27 Setups,
+// p.19/29 Duty Cycle, p.34–36 Technique, p.42–44 Troubleshooting),
+// Quick Start Guide (p.1 Spool Loading), Selection Chart (p.1).
+// =============================================================================
+
+// --- Page 7: Specifications, by process -------------------------------------
+export type ProcessSpecs = {
+  process: Exclude<WeldProcess, "unknown">;
+  power: { v120: string; v240: string };
+  inputCurrent: { v120: string; v240: string };
+  outputRange: { v120: string; v240: string };
+  maxOCV: string;
+  weldableMaterials: string[];
+  wireCapacity?: { solid?: string; flux?: string };
+  wireSpeed?: string;
+  refs: ManualRef[];
+};
+
+export const processSpecs: Record<Exclude<WeldProcess, "unknown">, ProcessSpecs> = {
+  mig: {
+    process: "mig",
+    power: { v120: "120 VAC / 60 Hz", v240: "240 VAC / 60 Hz" },
+    inputCurrent: { v120: "20.8 A at 100 A output", v240: "25.5 A at 200 A output" },
+    outputRange: { v120: "30–140 A", v240: "30–220 A" },
+    maxOCV: "86 VDC",
+    weldableMaterials: ["Mild Steel", "Stainless Steel", "Aluminum (with optional Spool Gun)"],
+    wireCapacity: { solid: "0.025\" / 0.030\" / 0.035\"", flux: "0.030\" / 0.035\" / 0.045\"" },
+    wireSpeed: "50–500 IPM",
+    refs: [ownerRef("Specifications", "7")]
+  },
+  "flux-core": {
+    process: "flux-core",
+    power: { v120: "120 VAC / 60 Hz", v240: "240 VAC / 60 Hz" },
+    inputCurrent: { v120: "20.8 A at 100 A output", v240: "25.5 A at 200 A output" },
+    outputRange: { v120: "30–140 A", v240: "30–220 A" },
+    maxOCV: "86 VDC",
+    weldableMaterials: ["Mild Steel", "Stainless Steel"],
+    wireCapacity: { flux: "0.030\" / 0.035\" / 0.045\"" },
+    wireSpeed: "50–500 IPM",
+    refs: [ownerRef("Specifications", "7")]
+  },
+  tig: {
+    process: "tig",
+    power: { v120: "120 VAC / 60 Hz", v240: "240 VAC / 60 Hz" },
+    inputCurrent: { v120: "20.6 A at 125 A output", v240: "15.6 A at 175 A output" },
+    outputRange: { v120: "10–125 A", v240: "10–175 A" },
+    maxOCV: "86 VDC",
+    weldableMaterials: ["Mild Steel", "Stainless Steel", "Chrome Moly"],
+    refs: [ownerRef("Specifications", "7")]
+  },
+  stick: {
+    process: "stick",
+    power: { v120: "120 VAC / 60 Hz", v240: "240 VAC / 60 Hz" },
+    inputCurrent: { v120: "19.5 A at 80 A output", v240: "23.7 A at 175 A output" },
+    outputRange: { v120: "10–80 A", v240: "10–175 A" },
+    maxOCV: "86 VDC",
+    weldableMaterials: ["Mild Steel", "Stainless Steel"],
+    refs: [ownerRef("Specifications", "7")]
+  }
+};
+
+// --- Pages 7, 19, 29: Duty cycle by process ---------------------------------
+// MIG/flux-core duty cycles are documented on p.7 and p.19.
+// TIG and Stick duty cycles are documented on p.29.
+export type ProcessDutyCycleRow = DutyCycleRow & { process: Exclude<WeldProcess, "unknown"> };
+
+export const dutyCycleByProcess: Record<Exclude<WeldProcess, "unknown">, ProcessDutyCycleRow[]> = {
+  mig: [
+    { process: "mig", input: "120V", amperage: "100A", dutyCycle: "40%", weldMinutes: 4, restMinutes: 6 },
+    { process: "mig", input: "120V", amperage: "75A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 },
+    { process: "mig", input: "240V", amperage: "200A", dutyCycle: "25%", weldMinutes: 2.5, restMinutes: 7.5 },
+    { process: "mig", input: "240V", amperage: "115A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 }
+  ],
+  "flux-core": [
+    { process: "flux-core", input: "120V", amperage: "100A", dutyCycle: "40%", weldMinutes: 4, restMinutes: 6 },
+    { process: "flux-core", input: "120V", amperage: "75A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 },
+    { process: "flux-core", input: "240V", amperage: "200A", dutyCycle: "25%", weldMinutes: 2.5, restMinutes: 7.5 },
+    { process: "flux-core", input: "240V", amperage: "115A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 }
+  ],
+  tig: [
+    { process: "tig", input: "120V", amperage: "125A", dutyCycle: "40%", weldMinutes: 4, restMinutes: 6 },
+    { process: "tig", input: "120V", amperage: "90A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 },
+    { process: "tig", input: "240V", amperage: "175A", dutyCycle: "30%", weldMinutes: 3, restMinutes: 7 },
+    { process: "tig", input: "240V", amperage: "105A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 }
+  ],
+  stick: [
+    { process: "stick", input: "120V", amperage: "80A", dutyCycle: "40%", weldMinutes: 4, restMinutes: 6 },
+    { process: "stick", input: "120V", amperage: "60A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 },
+    { process: "stick", input: "240V", amperage: "175A", dutyCycle: "25%", weldMinutes: 2.5, restMinutes: 7.5 },
+    { process: "stick", input: "240V", amperage: "100A", dutyCycle: "100%", weldMinutes: 10, restMinutes: 0 }
+  ]
+};
+
+export const dutyCycleRefs: Record<Exclude<WeldProcess, "unknown">, ManualRef> = {
+  mig: ownerRef("MIG / Flux-Cored duty cycle", "19"),
+  "flux-core": ownerRef("MIG / Flux-Cored duty cycle", "19"),
+  tig: ownerRef("TIG duty cycle", "29"),
+  stick: ownerRef("Stick duty cycle", "29")
+};
+
+
+// --- Pages 10–17, Quick Start p.1: Wire Feed mechanism --------------------
+export type WireFeedSpec = {
+  spoolSizes: { lb: string; loadingPage: string }[];
+  feedRoller: { wireType: "solid" | "flux-cored"; groove: string; sizesIn: string[] }[];
+  tension: { solid: string; flux: string };
+  contactTipMatchRule: string;
+  spoolDirection: string;
+  stainlessNote: string;
+  refs: ManualRef[];
+};
+
+export const wireFeed: WireFeedSpec = {
+  spoolSizes: [
+    { lb: "1–2 lb", loadingPage: "10" },
+    { lb: "10–12 lb", loadingPage: "11" }
+  ],
+  feedRoller: [
+    { wireType: "solid", groove: "V-groove", sizesIn: ["0.025\"", "0.030\"", "0.035\""] },
+    { wireType: "flux-cored", groove: "Knurled groove", sizesIn: ["0.030\"", "0.035\"", "0.045\""] }
+  ],
+  tension: {
+    solid: "3 – 5 (set on the Feed Tensioner)",
+    flux: "2 – 3 (too much force will crush flux-cored wire and cause feed issues)"
+  },
+  contactTipMatchRule:
+    "Contact Tip size on the MIG Gun must match the welding wire diameter on the Spool. If the Tip is oblong, enlarged, or dirty, replace it.",
+  spoolDirection: "Set the Spool so the wire unwinds clockwise toward the Feed Roller.",
+  stainlessNote:
+    "Stainless steel wire is less flexible — keep the Gun cable laid out straight while feeding.",
+  refs: [
+    ownerRef("Wire Spool Installation / Wire Setup", "10"),
+    ownerRef("10–12 lb Spool installation", "11"),
+    ownerRef("Feed Roller selection", "12"),
+    ownerRef("Feed Tensioner setting", "15"),
+    ownerRef("MIG Gun Contact Tip & Nozzle", "15"),
+    quickRef("Spool Loading", "1")
+  ]
+};
+
+// --- Page 17: Optional Spool Gun setup (aluminum) --------------------------
+export const spoolGunSetup = {
+  polarity: { positive: "Wire Feed Power Cable", negative: "Ground Clamp Cable" },
+  process: "DCEP (Spool Gun connector replaces the standard MIG Gun cable)",
+  steps: [
+    "Plug Ground Clamp Cable into Negative (–) Socket; Wire Feed Power Cable into Positive (+) Socket. Twist clockwise to lock.",
+    "Loosen the Wire Feed mechanism Knob; insert Spool Gun Cable Connector into the Wire Feed socket and tighten.",
+    "Connect the Spool Gun Gas Hose to the Spool Gun Gas Outlet on the front of the Welder.",
+    "Refer to paragraph 17 on page 14 for shielding gas setup.",
+    "Refer to the Spool Gun manual for operational information."
+  ],
+  refs: [ownerRef("Optional Spool Gun setup (aluminum)", "17")]
+};
+
+// --- Pages 34–36: Welding Tips / Technique --------------------------------
+export type TechniqueTip = {
+  topic: string;
+  appliesTo: Exclude<WeldProcess, "unknown">[];
+  guidance: string[];
+  refs: ManualRef[];
+};
+
+export const techniqueTips: TechniqueTip[] = [
+  {
+    topic: "CTWD (Contact Tip to Work Distance)",
+    appliesTo: ["mig", "flux-core"],
+    guidance: [
+      "Maintain 1/2\" or less CTWD.",
+      "Too long → porosity, weak penetration, wandering arc; reduce CTWD.",
+      "Too short → wire stubs into the tip; back off slightly."
+    ],
+    refs: [ownerRef("Wire Weld diagrams – CTWD", "35"), ownerRef("Burn-through / inadequate penetration", "36")]
+  },
+  {
+    topic: "Heat control (penetration)",
+    appliesTo: ["mig", "flux-core"],
+    guidance: [
+      "To increase heat / penetration: increase weld current, decrease travel speed, use faster wire feed, or use shorter CTWD.",
+      "To reduce heat / penetration: decrease weld current, increase travel speed, use slower wire feed, or use longer CTWD."
+    ],
+    refs: [ownerRef("Wire Welding heat control diagram", "35")]
+  },
+  {
+    topic: "Travel speed & gun angle",
+    appliesTo: ["mig", "flux-core"],
+    guidance: [
+      "Keep travel speed steady; inconsistent travel causes crooked / wavy beads.",
+      "Hold the MIG Gun at proper angles and keep the arc on the leading edge of the weld puddle.",
+      "Use two hands or rest your hand on a steady surface for accuracy."
+    ],
+    refs: [ownerRef("Crooked/Wavy bead, Bend at Joint", "36")]
+  },
+  {
+    topic: "Strike test (verify weld quality)",
+    appliesTo: ["mig", "flux-core", "tig", "stick"],
+    guidance: [
+      "Weld two scraps; clamp one in a vise; strike the other with a heavy hammer.",
+      "Good weld bends and is not brittle; this test damages the weld and is only an indicator of technique.",
+      "Wear ANSI-approved safety goggles."
+    ],
+    refs: [ownerRef("Strike Test", "34")]
+  },
+  {
+    topic: "TIG technique",
+    appliesTo: ["tig"],
+    guidance: [
+      "Maintain Tungsten-to-work distance of 1× to 1.5× the Electrode diameter.",
+      "After the puddle is hot, tilt the Torch back 10–15° from vertical and add TIG Rod to the leading edge of the puddle.",
+      "Remove the TIG Rod each time the Electrode advances, but keep the Rod inside the gas shield to prevent oxidation.",
+      "When finished, hold the Torch over the puddle until it solidifies before pulling away."
+    ],
+    refs: [ownerRef("TIG Welding procedure", "30"), ownerRef("TIG Welding (continued)", "31")]
+  },
+  {
+    topic: "Stick technique",
+    appliesTo: ["stick"],
+    guidance: [
+      "Ignite the arc by tapping, stroking, or striking the surface like a match.",
+      "After ignition, lift the Electrode the same distance as its bare-metal diameter.",
+      "Tilt the Electrode back 10–20° and drag it to the back of the weld puddle.",
+      "Set the Electrode Holder on a nonconductive, nonflammable surface when not in use."
+    ],
+    refs: [ownerRef("Stick Welding procedure", "32"), ownerRef("Stick Welding (continued)", "33")]
+  },
+  {
+    topic: "Tungsten Electrode preparation",
+    appliesTo: ["tig"],
+    guidance: [
+      "Dedicate a fine-grit grinding wheel to Electrode grinding to avoid contamination.",
+      "Grind direction must be lengthwise along the Electrode (not radial).",
+      "Electrode should protrude 1/8\" to 1/4\" beyond the Ceramic Nozzle, locked by the Back Cap.",
+      "Wear a respirator and ANSI-approved goggles when grinding (some Electrodes contain hazardous additives)."
+    ],
+    refs: [ownerRef("Sharpen Tungsten Electrode", "26"), ownerRef("Assemble TIG Torch", "26")]
+  }
+];
+
+// --- Pages 43–44: Troubleshooting tables ----------------------------------
+export type TroubleshootingEntry = {
+  problem: string;
+  appliesTo: ("mig" | "flux-core" | "tig" | "stick")[];
+  causes: string[];
+  solutions: string[];
+  refs: ManualRef[];
+};
+
+export const troubleshootingTable: TroubleshootingEntry[] = [
+  {
+    problem: "Welder Does Not Function When Switched On",
+    appliesTo: ["mig", "flux-core"],
+    causes: [
+      "Tripped thermal protection device.",
+      "Circuit supplies insufficient input voltage or amperage.",
+      "Faulty or improperly connected Trigger.",
+      "Machine is in low- or over-voltage protection.",
+      "Machine is in the incorrect mode."
+    ],
+    solutions: [
+      "If a warning screen appears, the Welder may have overheated — wait with Power Switch ON until it cools.",
+      "Verify the circuit supplies the required input voltage/amperage per Specifications (p.7).",
+      "Ensure the gun connection is fully seated; a qualified technician must inspect/replace the Trigger.",
+      "Check input voltage; if correct, press the Reset Button on the back of the machine.",
+      "Confirm the correct process is selected on the Control Panel."
+    ],
+    refs: [ownerRef("Troubleshooting – Wire Welding", "43"), ownerRef("Duty Cycle reference", "19")]
+  },
+  {
+    problem: "LCD Display Does Not Light When Welder is Switched On",
+    appliesTo: ["mig", "flux-core", "tig", "stick"],
+    causes: [
+      "Unit is not connected to the outlet properly.",
+      "Outlet is unpowered.",
+      "Plug does not have correct rating.",
+      "Circuit breaker tripped due to high input amperage.",
+      "Input Power Cord is not seated properly."
+    ],
+    solutions: [
+      "Verify outlet voltage and the connection.",
+      "Check circuit breaker / GFCI; clear any trip cause before resetting.",
+      "Confirm the installed plug rating matches Specifications (p.7).",
+      "Press Reset Button on the back of the machine.",
+      "Ensure the twist-lock Power Cord is fully secured."
+    ],
+    refs: [ownerRef("Troubleshooting – Wire Welding / TIG / Stick", "43"), ownerRef("Specifications", "7")]
+  }
+  ,
+  {
+    problem: "Wire Feeds, but Arc Does Not Ignite",
+    appliesTo: ["mig", "flux-core"],
+    causes: [
+      "Improper ground connection.",
+      "Improperly sized Contact Tip.",
+      "Excessively worn Contact Tip.",
+      "Dirty Contact Tip."
+    ],
+    solutions: [
+      "Ensure the Ground Clamp contacts bare, clean metal on the workpiece near the weld location.",
+      "Verify Contact Tip size matches the welding wire; replace with the proper size and type if not.",
+      "Check that the hole in the Tip is not deformed or enlarged; replace if needed.",
+      "Properly clean the Contact Tip."
+    ],
+    refs: [ownerRef("Troubleshooting – Wire Welding", "43")]
+  },
+  {
+    problem: "Porosity in the Weld Metal",
+    appliesTo: ["mig", "flux-core"],
+    causes: [
+      "Shielding gas bottle is empty.",
+      "Not enough or too much shielding gas.",
+      "Dirty workpiece.",
+      "Gun is being used too far away from the workpiece.",
+      "Polarity is incorrect for the application.",
+      "Dirty welding wire is introducing contamination into the weld."
+    ],
+    solutions: [
+      "Check gas bottle and replenish as necessary.",
+      "Check gas regulator to ensure proper flow (refer to Settings Chart on Welder door).",
+      "Clean workpiece down to bare metal.",
+      "Check CTWD — keep it 1/2\" or less.",
+      "Confirm polarity is DCEP for MIG and DCEN for Flux-Cored.",
+      "Make sure welding wire is clean and free of rust and residues."
+    ],
+    refs: [ownerRef("Troubleshooting – Porosity", "43"), ownerRef("Polarity Setup (Flux-core / Solid)", "13")]
+  },
+  {
+    problem: "Welder Does Not Function When Switched On (TIG / Stick)",
+    appliesTo: ["tig", "stick"],
+    causes: [
+      "Tripped thermal protection device.",
+      "Faulty or improperly connected Trigger.",
+      "Ground Clamp not attached to workpiece.",
+      "Shielding Gas not connected (TIG)."
+    ],
+    solutions: [
+      "Reduce duration or frequency of welding periods (see Duty Cycle, p.29).",
+      "Qualified technician must check and secure or replace the Trigger.",
+      "Attach the Ground Clamp directly to the workpiece.",
+      "Connect shielding gas to the Welder."
+    ],
+    refs: [ownerRef("Troubleshooting – TIG / Stick Welding", "44"), ownerRef("Duty Cycle (TIG / Stick)", "29")]
+  },
+  {
+    problem: "Weak Arc Strength (TIG / Stick)",
+    appliesTo: ["tig", "stick"],
+    causes: [
+      "Incorrect line voltage.",
+      "Improper gauge or length of cord."
+    ],
+    solutions: [
+      "Have a licensed electrician verify line voltage and remedy if insufficient.",
+      "Do not use an extension cord — use only the supplied power cord (or identical replacement)."
+    ],
+    refs: [ownerRef("Troubleshooting – Weak Arc Strength", "44")]
+  },
+  {
+    problem: "Welding Arc Not Stable (TIG / Stick)",
+    appliesTo: ["tig", "stick"],
+    causes: [
+      "Loose electrode cable or ground cable.",
+      "Damaged Electrode Holder or loose internal connection.",
+      "Current setting incorrect for material/electrode.",
+      "Shielding gas getting low (TIG)."
+    ],
+    solutions: [
+      "Tighten all cable connections.",
+      "Have a qualified technician inspect and repair/replace as necessary.",
+      "Match current to the recommended setting on the Settings Chart.",
+      "Replace the shielding gas cylinder."
+    ],
+    refs: [ownerRef("Troubleshooting – Welding Arc Not Stable", "44")]
+  }
+
+];
+
