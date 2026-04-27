@@ -78,7 +78,18 @@ const DUTY_RE =
   /\bduty\b|\bweld continuously\b|\bcontinuously at\b|\boverheat(?:ing)?\b|\bthermal shutdown\b|\b\d{2,3}\s*a(?:mp(?:s|erage)?)?\b/;
 
 const TROUBLE_RE =
-  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bproblem\b|\bwrong\b|\bbird.?nest\b|\bburn[- ]through\b|\bdefect\b|\bunstable arc\b|\bcraters?\b|\bholes? in\b|\bweld(?:s)? (?:has|have|look|looks)\b/;
+  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bproblem\b|\bwrong\b|\bbird.?nest\b|\bburn[- ]through\b|\bdefect\b|\bunstable arc\b|\bcraters?\b|\bholes? in\b|\bweld(?:s)? (?:has|have|look|looks|seems?|are)\b/;
+
+// Specific defect nouns. Used to tell apart a real troubleshooting question
+// ("my welds have pinholes") from a vague one ("my weld looks bad") that
+// cannot be answered without knowing what the user actually sees.
+const SPECIFIC_DEFECT_RE =
+  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bbird.?nest\b|\bburn[- ]through\b|\bcraters?\b|\bundercut\b|\bcracking\b|\bcracks?\b|\bunstable arc\b|\bholes? in\b|\bdrop[- ]?through\b|\bwavy\b|\btoo (?:hot|cold)\b|\bwon'?t stick\b/;
+
+// Vague trouble phrasing on its own (no defect noun). Examples: "my weld
+// looks bad", "something is wrong with my weld", "weld doesn't look right".
+const VAGUE_TROUBLE_RE =
+  /\bbad weld\b|\bweak weld\b|\bugly weld\b|\bweld(?:s)? (?:looks?|seems?|are) (?:bad|off|wrong|weird|ugly|terrible)\b|\bsomething(?:'s| is) wrong\b|\bdoesn'?t look right\b|\bmessed up\b|\blooks off\b/;
 
 const PROCESS_SELECTION_RE =
   /\bchoose\b|\bwhich process\b|\bwhat process\b|\bcompare\b|\bbest process\b|\bshould i use\b|\bdifference between\b|\b(mig|tig|flux(?:-?core)?|stick)\s+(vs\.?|versus)\s+(mig|tig|flux(?:-?core)?|stick)\b|\bdon'?t have gas\b/;
@@ -125,7 +136,14 @@ export function planOutput({
       needsClaudeVision: false,
       needsClarification,
       clarificationQuestion: needsClarification
-        ? "Which process are you setting up: MIG, flux-core, TIG, or stick?"
+        ? [
+          "Happy to walk you through the setup \u2014 a couple of quick details first:",
+          "- Which process are you using (MIG, flux-core, TIG, or stick)?",
+          "- Do you have shielding gas available?",
+          "- What material are you welding?",
+          "",
+          "Once I have that, I\u2019ll give you the exact cable diagram and steps."
+        ].join("\n")
         : undefined
     };
   }
@@ -144,8 +162,30 @@ export function planOutput({
     };
   }
 
-  // 4. Troubleshooting
-  if (TROUBLE_RE.test(lower)) {
+  // 4. Troubleshooting. If only vague phrasing matched (no specific defect
+  //    noun like porosity/spatter/burn-through), we cannot diagnose without
+  //    guessing. Ask for the defect type or a photo instead of returning a
+  //    generic checklist.
+  if (TROUBLE_RE.test(lower) || VAGUE_TROUBLE_RE.test(lower)) {
+    const hasSpecificDefect = SPECIFIC_DEFECT_RE.test(lower);
+    if (!hasSpecificDefect) {
+      return {
+        intent: "troubleshooting",
+        process,
+        slots,
+        requiredFacts: ["Defect type", "Process", "Image (optional)"],
+        visualType: "none",
+        visualId: undefined,
+        needsClaudeVision: false,
+        needsClarification: true,
+        clarificationQuestion: [
+          "Got it \u2014 let me narrow it down. A couple of details would help:",
+          "- What does the bead actually look like (pinholes, spatter, burn-through, wavy, bird-nesting)?",
+          "- Which process are you running (MIG, flux-core, TIG, or stick)?",
+          "- If you can, snap a close-up photo and I\u2019ll diagnose it directly."
+        ].join("\n")
+      };
+    }
     return {
       intent: "troubleshooting",
       process,
@@ -215,7 +255,10 @@ const SETTINGS_RE = /\b(setting|settings|recommend|wire speed|voltage setting|th
 //     cables go?"
 //     -> [setup_diagram(flux-core)]   (no stale duty cycle)
 export function planVisuals(message: string, hasUploadedImage: boolean): PlannerVisualType[] {
-  if (hasUploadedImage) return ["image_diagnosis_panel"];
+  // Uploaded image -> diagnosis panel + cause/check/fix flow + the manual's
+  // weld-diagnosis reference page (so the image becomes reasoning evidence,
+  // not just decoration).
+  if (hasUploadedImage) return ["image_diagnosis_panel", "troubleshooting_flow", "manual_image_card"];
 
   const lower = message.toLowerCase();
   const slots = extractSlots(message);

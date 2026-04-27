@@ -39,6 +39,53 @@ function isGenericMultiProcessAnswer(answer: string): boolean {
   return processCount >= 3;
 }
 
+// Detects the localGroundedResponse "Tell me what you are setting up..."
+// fallback so we can replace it with a real diagnosis when an image is present.
+function isGenericClarificationFallback(answer: string): boolean {
+  return /tell me what you are setting up or fixing/i.test(answer);
+}
+
+// Composes a chat answer directly from imageDiagnosis so the user always gets
+// a real visual diagnosis (never the generic clarification fallback) when an
+// image is attached.
+function composeImageDiagnosisAnswer(d: NonNullable<AgentResponse["imageDiagnosis"]>): string {
+  const lines: string[] = [];
+  lines.push(`This looks like **${d.likelyIssue}** (confidence: ${d.confidence}).`);
+  if (d.visualClues.length) {
+    lines.push("");
+    lines.push("Visible clues:");
+    d.visualClues.slice(0, 4).forEach((c) => lines.push(`- ${c}`));
+  }
+  if (d.fixes.length) {
+    lines.push("");
+    lines.push("First checks:");
+    d.fixes.slice(0, 4).forEach((f, i) => lines.push(`${i + 1}. ${f}`));
+  }
+  if (d.caution) {
+    lines.push("");
+    lines.push(`Note: ${d.caution}`);
+  }
+  return lines.join("\n");
+}
+
+// Builds cause/check/fix items from the live image diagnosis so the
+// troubleshooting flow visual reflects what was actually seen in the photo
+// (not generic catalog defaults).
+function troubleshootingItemsFromDiagnosis(
+  d: NonNullable<AgentResponse["imageDiagnosis"]>
+): Array<{ cause: string; check: string; fix: string }> {
+  const len = Math.max(d.checks.length, d.fixes.length, d.visualClues.length);
+  const items: Array<{ cause: string; check: string; fix: string }> = [];
+  for (let i = 0; i < len; i++) {
+    items.push({
+      cause: d.visualClues[i] ?? d.likelyIssue,
+      check: d.checks[i] ?? "Inspect the bead and surrounding metal.",
+      fix: d.fixes[i] ?? "Adjust based on the cause above."
+    });
+  }
+  return items;
+}
+
 // Map planner visual types to UI visual types so the workspace always reflects
 // the routed intent and never holds a stale visual from a previous turn.
 const plannerVisualToUi: Record<PlannerVisualType, VisualType> = {
@@ -196,6 +243,39 @@ export async function POST(request: Request) {
   const indexedVisual = findManualImageById(outputPlan.visualId);
   const visualFacts = indexedVisual ? indexedVisual.extractedFacts : [];
 
+  // Ambiguity short-circuit: if the planner detected critical info is missing
+  // (vague setup, vague troubleshooting), return a focused 3-bullet
+  // clarification instead of guessing. Skips Claude entirely. The user's reply
+  // is resolved on the next turn via conversationState.pending.
+  if (
+    outputPlan.needsClarification &&
+    outputPlan.clarificationQuestion &&
+    !body.image?.data &&
+    !resolved.resolvedFromPending
+  ) {
+    // Use polarity/troubleshooting visualType (not "text") so the existing
+    // pending-state machinery in nextConversationState recognizes the question
+    // and tracks the missing slot.
+    const clarificationVisualType: VisualType =
+      outputPlan.intent === "troubleshooting" ? "troubleshooting" : "polarity";
+    const clarification: AgentResponse = {
+      answer: outputPlan.clarificationQuestion,
+      visualType: clarificationVisualType,
+      process: outputPlan.process,
+      refs: [],
+      visuals: [],
+      outputPlan
+    };
+    const conversationState = nextConversationState(question, clarification, body.conversationState, resolved);
+    console.log("[chat] clarification short-circuit for intent:", outputPlan.intent);
+    return NextResponse.json({
+      ...clarification,
+      conversationState,
+      usedModel: "planner-clarification" as const,
+      cacheKey
+    });
+  }
+
   if (!process.env.ANTHROPIC_API_KEY) {
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
     const localImage = indexedVisual
@@ -271,7 +351,16 @@ export async function POST(request: Request) {
     intentKnowledge,
     "",
     hasImage
-      ? "IMAGE: The user uploaded an image. Look at it, match cues against the WELD DIAGNOSIS KNOWLEDGE above, and explain likely issue + why + fix."
+      ? [
+        "IMAGE DIAGNOSIS MODE: The user uploaded an image \u2014 analyze it directly.",
+        "- Do NOT ask generic clarification questions before diagnosing what you can see.",
+        "- Start with the most likely visual diagnosis.",
+        "- Compare what you see to the manual's weld diagnosis catalog: porosity, excessive spatter, wavy bead, burn-through, poor penetration, contamination.",
+        "- State visible clues, likely causes, and the first checks to run.",
+        "- Likely causes to consider: wrong polarity, dirty metal, contaminated wire, shielding gas issue (MIG only), CTWD/stickout/travel speed.",
+        "- If uncertain, say so explicitly but still describe what is visible \u2014 never refuse to diagnose just because the photo isn't perfect.",
+        "- Set visualType=\"image-diagnosis\" and fill imageDiagnosis with category, likelyIssue, visualClues, checks, fixes, and confidence."
+      ].join("\n")
       : "IMAGE: No image is attached. Do NOT mention images, do NOT say 'I don't see an image', and do NOT ask for one.",
     "",
     responseJsonInstruction,
@@ -306,6 +395,17 @@ export async function POST(request: Request) {
       }
     });
   }
+
+  // Temporary debug logging for image-diagnosis routing. Never logs the full
+  // base64 payload \u2014 only its length so we can confirm it reached the API.
+  const hasImageBlock = content.some((b) => b.type === "image");
+  console.log("[chat] imagePresent:", Boolean(body.image?.data));
+  if (body.image?.data) {
+    console.log("[chat] imageMediaType:", body.image.mediaType);
+    console.log("[chat] base64Length:", body.image.data.length);
+  }
+  console.log("[chat] intent:", outputPlan.intent);
+  console.log("[chat] claudeContentIncludesImageBlock:", hasImageBlock);
 
   try {
     let imageDiagnosis: AgentResponse["imageDiagnosis"] | undefined;
@@ -362,6 +462,19 @@ export async function POST(request: Request) {
     if (outputPlan.visualType === "image_diagnosis_panel") {
       if (imageDiagnosis) {
         response.imageDiagnosis = imageDiagnosis;
+        // If Claude fell back to the generic clarification text, replace it
+        // with a real diagnosis composed from the imageDiagnosis payload so
+        // the user always sees a focused answer when an image is attached.
+        if (isGenericClarificationFallback(response.answer)) {
+          console.log("[chat] generic fallback detected with image \u2014 substituting imageDiagnosis answer");
+          response.answer = composeImageDiagnosisAnswer(imageDiagnosis);
+        }
+        // Derive cause/check/fix items from the live diagnosis so the
+        // troubleshooting flow shows what was actually seen, not a generic
+        // catalog default.
+        if (!response.troubleshootingItems?.length) {
+          response.troubleshootingItems = troubleshootingItemsFromDiagnosis(imageDiagnosis);
+        }
       }
       if (!response.answer.toLowerCase().includes("can’t confirm") && !response.answer.toLowerCase().includes("cannot confirm")) {
         response.answer = `${response.answer}\n\nCommon mistake:\n- Over-trusting one photo. Verify polarity, shielding/feed, and clean metal before changing technique.\n\nNext:\n1. Run the checks listed in the diagnosis panel.\n2. Make a short test bead.\n3. Share a clearer close-up if results are still inconsistent.`;

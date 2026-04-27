@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { ImagePlus, Loader2, Send, ShieldCheck, X } from "lucide-react";
+import { Eye, ImagePlus, Loader2, Send, ShieldCheck, X } from "lucide-react";
 import { SourceChips } from "@/components/SourceChips";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { VisualWorkspace } from "@/components/VisualWorkspace";
@@ -17,6 +17,22 @@ type ChatTurn = {
   imagePreview?: string;
   response?: CachedResponseData;
 };
+
+// Returns true when the workspace would render at least one panel for this
+// response. Mirrors the conditions inside VisualWorkspace's answer tab so the
+// "View visual" affordance only appears on messages that produced a visual.
+function hasWorkspaceVisuals(response?: CachedResponseData): boolean {
+  if (!response) return false;
+  if (response.visuals?.length) return true;
+  if (response.visualType === "polarity") return true;
+  if (response.visualType === "duty-cycle" && response.dutyCycleRows?.length) return true;
+  if (response.visualType === "process-selection") return true;
+  if (response.visualType === "image-diagnosis" && response.imageDiagnosis) return true;
+  if (response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length)) return true;
+  if (response.settingRecommendation) return true;
+  if (response.manualImages?.length) return true;
+  return false;
+}
 
 const acceptedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 
@@ -81,6 +97,11 @@ export default function Home() {
   const [uploadError, setUploadError] = useState<string>();
   const [isLoading, setIsLoading] = useState(false);
   const [conversationState, setConversationState] = useState<ConversationState>({});
+  // Lightweight visual history: when the user clicks "View visual" on an older
+  // assistant message, pin its turn id so the workspace shows that message's
+  // saved visual payload. Cleared whenever a fresh assistant response arrives
+  // so the latest answer always wins by default.
+  const [pinnedTurnId, setPinnedTurnId] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const activeRequestController = useRef<AbortController | null>(null);
 
@@ -93,15 +114,46 @@ export default function Home() {
     [turns]
   );
 
-  const latestResponse = useMemo(
-    () => [...turns].reverse().find((turn) => turn.role === "assistant" && turn.response)?.response,
+  const latestAssistantTurn = useMemo(
+    () => [...turns].reverse().find((turn) => turn.role === "assistant" && turn.response),
     [turns]
   );
+
+  const latestResponse = latestAssistantTurn?.response;
 
   const latestUserQuestion = useMemo(
     () => [...turns].reverse().find((turn) => turn.role === "user")?.content,
     [turns]
   );
+
+  // Auto-clear the pin whenever a new assistant response arrives so the
+  // workspace snaps back to the newest visual on the next turn.
+  const previousLatestAssistantId = useRef(latestAssistantTurn?.id);
+  useEffect(() => {
+    if (previousLatestAssistantId.current !== latestAssistantTurn?.id) {
+      previousLatestAssistantId.current = latestAssistantTurn?.id;
+      setPinnedTurnId(null);
+    }
+  }, [latestAssistantTurn?.id]);
+
+  const pinnedTurn = useMemo(
+    () => (pinnedTurnId ? turns.find((turn) => turn.id === pinnedTurnId) : undefined),
+    [pinnedTurnId, turns]
+  );
+
+  const displayedResponse = pinnedTurn?.response ?? latestResponse;
+
+  // When viewing a pinned visual, also surface the user question that produced
+  // it so components like TroubleshootingFlow show the matching symptom header.
+  const displayedUserQuestion = useMemo(() => {
+    if (!pinnedTurnId) return latestUserQuestion;
+    const idx = turns.findIndex((turn) => turn.id === pinnedTurnId);
+    if (idx <= 0) return latestUserQuestion;
+    for (let i = idx - 1; i >= 0; i--) {
+      if (turns[i].role === "user") return turns[i].content;
+    }
+    return latestUserQuestion;
+  }, [pinnedTurnId, turns, latestUserQuestion]);
 
   async function submitPrompt(prompt: string) {
     if (!prompt.trim() || isLoading) return;
@@ -240,44 +292,62 @@ export default function Home() {
         <section className="flex min-h-0 flex-col bg-[#f7f7f8]">
           <div className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
             <div className="mx-auto max-w-4xl space-y-4">
-              {turns.map((turn) => (
-                <article key={turn.id} className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}>
-                  <div
-                    className={
-                      turn.role === "user"
-                        ? "max-w-[82%] rounded-lg bg-zinc-950 px-4 py-3 text-white shadow-sm"
-                        : "max-w-[88%] rounded-lg border border-zinc-200 bg-white px-4 py-3 text-zinc-900 shadow-sm"
-                    }
-                  >
-                    {turn.role === "user" ? (
-                      <p className="whitespace-pre-wrap text-sm leading-6">{turn.content}</p>
-                    ) : (
-                      <MarkdownContent content={turn.content} />
-                    )}
-                    {turn.imagePreview ? (
-                      <Image src={turn.imagePreview} alt="Uploaded question context" width={360} height={240} className="mt-3 rounded-md border border-white/20" />
-                    ) : null}
-                    {turn.response?.highlights?.warning ? (
-                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
-                        <span aria-hidden>⚠</span>
-                        <span>{turn.response.highlights.warning}</span>
-                      </div>
-                    ) : null}
-                    {turn.response?.refs?.length ? (
-                      <div className="mt-3">
-                        <SourceChips refs={turn.response.refs} />
-                      </div>
-                    ) : null}
-                    {turn.response?.reasoning_summary ? (
-                      <details className="mt-3 text-xs text-zinc-600">
-                        <summary className="cursor-pointer select-none font-semibold text-zinc-700 hover:text-zinc-900">Why this answer</summary>
-                        <p className="mt-1.5 leading-5">{turn.response.reasoning_summary}</p>
-                      </details>
-                    ) : null}
-                    {turn.response?.warning ? <p className="mt-3 text-xs text-amber-700">{turn.response.warning}</p> : null}
-                  </div>
-                </article>
-              ))}
+              {turns.map((turn) => {
+                const turnHasVisuals = turn.role === "assistant" && hasWorkspaceVisuals(turn.response);
+                const isPinned = pinnedTurnId === turn.id;
+                const isLatestAssistant = turn.id === latestAssistantTurn?.id;
+                return (
+                  <article key={turn.id} className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}>
+                    <div
+                      className={
+                        turn.role === "user"
+                          ? "max-w-[82%] rounded-lg bg-zinc-950 px-4 py-3 text-white shadow-sm"
+                          : `max-w-[88%] rounded-lg border bg-white px-4 py-3 text-zinc-900 shadow-sm ${isPinned ? "border-torch ring-1 ring-torch/30" : "border-zinc-200"}`
+                      }
+                    >
+                      {turn.role === "user" ? (
+                        <p className="whitespace-pre-wrap text-sm leading-6">{turn.content}</p>
+                      ) : (
+                        <MarkdownContent content={turn.content} />
+                      )}
+                      {turn.imagePreview ? (
+                        <Image src={turn.imagePreview} alt="Uploaded question context" width={360} height={240} className="mt-3 rounded-md border border-white/20" />
+                      ) : null}
+                      {turn.response?.highlights?.warning ? (
+                        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                          <span aria-hidden>⚠</span>
+                          <span>{turn.response.highlights.warning}</span>
+                        </div>
+                      ) : null}
+                      {turn.response?.refs?.length ? (
+                        <div className="mt-3">
+                          <SourceChips refs={turn.response.refs} />
+                        </div>
+                      ) : null}
+                      {turn.response?.reasoning_summary ? (
+                        <details className="mt-3 text-xs text-zinc-600">
+                          <summary className="cursor-pointer select-none font-semibold text-zinc-700 hover:text-zinc-900">Why this answer</summary>
+                          <p className="mt-1.5 leading-5">{turn.response.reasoning_summary}</p>
+                        </details>
+                      ) : null}
+                      {turn.response?.warning ? <p className="mt-3 text-xs text-amber-700">{turn.response.warning}</p> : null}
+                      {turnHasVisuals && !isLatestAssistant ? (
+                        <div className="mt-3">
+                          <button
+                            type="button"
+                            onClick={() => setPinnedTurnId(isPinned ? null : turn.id)}
+                            aria-pressed={isPinned}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${isPinned ? "border-torch bg-orange-50 text-torch" : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"}`}
+                          >
+                            <Eye size={13} />
+                            {isPinned ? "Viewing visual" : "View visual"}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  </article>
+                );
+              })}
               {isLoading ? (
                 <div className="inline-flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-700 shadow-sm">
                   <Loader2 size={16} className="animate-spin" />
@@ -364,7 +434,11 @@ export default function Home() {
           </form>
         </section>
 
-        <VisualWorkspace response={latestResponse} userQuestion={latestUserQuestion} isLoading={isLoading} />
+        <VisualWorkspace
+          response={displayedResponse}
+          userQuestion={displayedUserQuestion}
+          isLoading={isLoading && !pinnedTurnId}
+        />
       </div>
     </main>
   );
