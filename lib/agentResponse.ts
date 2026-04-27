@@ -74,6 +74,13 @@ export const AgentResponseSchema = z.object({
     confidence: z.enum(["low", "medium", "high"]),
     caution: z.string().optional()
   }).optional(),
+  troubleshootingItems: z.array(
+    z.object({
+      cause: z.string(),
+      check: z.string(),
+      fix: z.string()
+    })
+  ).optional(),
   outputPlan: z.object({
     intent: z.string(),
     process: z.enum(["mig", "flux-core", "tig", "stick", "unknown"]),

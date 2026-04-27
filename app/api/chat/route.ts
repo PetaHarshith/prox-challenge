@@ -7,6 +7,11 @@ import { retrieveManualContext, manualImages } from "@/lib/manualKnowledge";
 import { findManualImageById, getManualImageRef } from "@/lib/manualImageIndex";
 import { planOutput, structuredCacheKey, type PlannerVisualType } from "@/lib/outputPlanner";
 import type { VisualType } from "@/lib/manualKnowledge";
+import {
+  getTroubleshootingItems,
+  getVisualKnowledgeForIntent,
+  weldDiagnosisKnowledge
+} from "@/lib/manualVisualKnowledge";
 
 export const runtime = "nodejs";
 
@@ -68,6 +73,7 @@ const responseJsonInstruction = `Return only compact JSON with this shape:
   "settingRecommendation": {"process":"mig|flux-core|tig|stick", "material":"...", "thickness":"...", "inputVoltage":"120V|240V", "summary":"...", "steps":["..."], "caution":"optional"},
   "recommendedProcess": "mig|flux-core|tig|stick",
   "imageDiagnosis": {"category":"weld_bead_defect|wiring_setup|front_panel|wire_feed|unknown","likelyIssue":"...","visualClues":["..."],"checks":["..."],"fixes":["..."],"confidence":"low|medium|high","caution":"optional"},
+  "troubleshootingItems": [{"cause":"...", "check":"...", "fix":"..."}],
   "highlightContext": {"type":"duty-cycle|polarity|troubleshooting", "highlightKey":"optional", "highlightLabel":"optional", "emphasis":"optional"}
 }`;
 
@@ -136,6 +142,7 @@ export async function POST(request: Request) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
   const model = process.env.ANTHROPIC_MODEL ?? "claude-sonnet-4-5-20250929";
   const hasImage = Boolean(body.image?.data);
+  const intentKnowledge = getVisualKnowledgeForIntent(outputPlan.intent, outputPlan.slots);
 
   const prompt = [
     "You are a practical garage-side welding helper for the Vulcan OmniPro 220.",
@@ -161,13 +168,14 @@ export async function POST(request: Request) {
     "FORMATTING:",
     "- First sentence MUST directly answer the user's question before any list or extra explanation.",
     "- Bold important cable/socket names: **ground clamp → negative (−)**",
-    "- Use numbered steps: 1. First, 2. Then, etc.",
-    "- Add practical tips: 'Tip: ...' only if relevant to the manual context",
+    "- Use numbered steps: 1. First, 2. Then, etc. Maximum 3 steps unless the user asked for a full procedure.",
+    "- Add at most one 'Tip: ...' or one warning. No long paragraphs.",
     "- Use 'Next:' to guide what to do after this task",
-    "- Keep each section scannable and short",
     "- Never return only raw tables/lists without a direct answer sentence first.",
-    "- For duty-cycle responses, compute exact weld/rest time and fill highlightContext.highlightKey as '<input>-<amperage>' and highlightContext.highlightLabel as '<weld> min weld / <rest> min rest'.",
+    "- For duty-cycle responses, compute weld/rest time FIRST in the answer, then fill highlightContext.highlightKey as '<input>-<amperage>' and highlightContext.highlightLabel as '<weld> min weld / <rest> min rest'.",
     "- For polarity responses, fill highlightContext.emphasis with the key connection pair (example: 'Ground → +, Torch → −').",
+    "- For process_selection, set recommendedProcess and explain WHY in one sentence (gas? outdoors? thickness? finish?).",
+    "- For troubleshooting, return checklist[] of short imperative steps in cause→check→fix order.",
     "",
     "FACTS (from manual context below):",
     "- Flux-core: ground clamp → positive (+), wire feed cable → negative (−), no shielding gas",
@@ -180,8 +188,10 @@ export async function POST(request: Request) {
     "VISUAL KNOWLEDGE FACTS (from indexed manual images):",
     visualFacts.map((fact) => `- ${fact}`).join("\n"),
     "",
+    intentKnowledge,
+    "",
     hasImage
-      ? "IMAGE: The user uploaded an image. Describe what you see and tie it back to their question."
+      ? "IMAGE: The user uploaded an image. Look at it, match cues against the WELD DIAGNOSIS KNOWLEDGE above, and explain likely issue + why + fix."
       : "IMAGE: No image is attached. Do NOT mention images, do NOT say 'I don't see an image', and do NOT ask for one.",
     "",
     responseJsonInstruction,
@@ -280,6 +290,9 @@ export async function POST(request: Request) {
     if (indexedVisual && !response.refs.some((ref) => ref.title === indexedVisual.title)) {
       response.refs = [...response.refs, getManualImageRef(indexedVisual)];
     }
+    if (outputPlan.intent === "troubleshooting" && !response.troubleshootingItems?.length) {
+      response.troubleshootingItems = getTroubleshootingItems(question);
+    }
     const conversationState = nextConversationState(question, response, body.conversationState, resolved);
 
     return NextResponse.json({
@@ -312,7 +325,15 @@ async function analyzeUploadedImage(
   mediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif",
   question: string
 ): Promise<AgentResponse["imageDiagnosis"]> {
-  const prompt = `Classify this welding-related image and return only compact JSON:
+  const diagnosisCatalog = weldDiagnosisKnowledge
+    .map((d) => `- ${d.defect}: cues=[${d.visualCues.join("; ")}]; causes=[${d.likelyCauses.join("; ")}]; fixes=[${d.fixes.join("; ")}]`)
+    .join("\n");
+  const prompt = `Classify this welding-related image. Compare what you see against the known defect catalog below and return only compact JSON.
+
+Known defect catalog (match cues, then borrow likelyIssue/checks/fixes wording):
+${diagnosisCatalog}
+
+JSON shape:
 {
   "category": "weld_bead_defect|wiring_setup|front_panel|wire_feed|unknown",
   "likelyIssue": "...",
@@ -322,7 +343,7 @@ async function analyzeUploadedImage(
   "confidence": "low|medium|high",
   "caution": "optional"
 }
-If unclear, set category=unknown, confidence=low, and caution="I can’t confirm from this image, but here are the checks I’d run first."
+If unclear, set category=unknown, confidence=low, and caution="I can\u2019t confirm from this image, but here are the checks I\u2019d run first."
 User question: ${question}`;
 
   const message = await client.messages.create({

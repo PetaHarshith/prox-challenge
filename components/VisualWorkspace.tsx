@@ -113,9 +113,9 @@ export function VisualWorkspace({ response }: { response?: WorkspaceResponse }) 
                   />
                 </WorkspaceSection>
               ) : null}
-              {response.visualType === "troubleshooting" && response.checklist ? (
+              {response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length) ? (
                 <WorkspaceSection title="Troubleshooting Path" refs={response.refs}>
-                  <TroubleshootingFlow steps={response.checklist} />
+                  <TroubleshootingFlow steps={response.checklist} items={response.troubleshootingItems} />
                 </WorkspaceSection>
               ) : null}
               {response.settingRecommendation ? (
