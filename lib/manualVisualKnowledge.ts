@@ -145,15 +145,102 @@ export function getVisualKnowledgeForIntent(intent: PlannerIntent, slots: Planne
 }
 
 // Returns the structured troubleshooting items for the response payload so the
-// UI can render cause/check/fix triplets instead of a flat list.
-export function getTroubleshootingItems(question: string): Array<{ cause: string; check: string; fix: string }> {
+// UI can render cause/check/fix triplets instead of a flat list. When process
+// is flux-core, MIG-only causes (shielding gas) are filtered out so the flow
+// leads with polarity, dirty metal, contaminated wire, and drive/feed checks.
+export function getTroubleshootingItems(
+  question: string,
+  process?: WeldProcess
+): Array<{ cause: string; check: string; fix: string }> {
   const lower = question.toLowerCase();
   const match = weldDiagnosisKnowledge.find((d) => lower.includes(d.defect.toLowerCase().split(" ")[0]));
   const target = match ?? weldDiagnosisKnowledge[0];
-  const len = Math.min(target.likelyCauses.length, target.fixes.length);
-  return Array.from({ length: len }, (_, i) => ({
-    cause: target.likelyCauses[i],
-    check: target.visualCues[i] ?? `Inspect for: ${target.likelyCauses[i]}`,
-    fix: target.fixes[i]
-  }));
+
+  const isFluxCore = process === "flux-core" || /\bflux|gasless|self[- ]shield/.test(lower);
+  const isMig = process === "mig" || /\bmig\b|solid[- ]core|shielding gas/.test(lower);
+
+  const items: Array<{ cause: string; check: string; fix: string }> = [];
+  for (let i = 0; i < target.likelyCauses.length; i++) {
+    const cause = target.likelyCauses[i];
+    const fix = target.fixes[i] ?? `Address: ${cause}`;
+    const check = target.visualCues[i] ?? `Inspect for: ${cause}`;
+    const isMigOnly = /mig only|shielding gas|gas flow|gas cylinder|regulator|draft/i.test(`${cause} ${fix}`);
+    if (isFluxCore && isMigOnly) continue;
+    if (!isMig && /shield from drafts|cylinder valve|regulator flow/i.test(fix)) continue;
+    items.push({ cause, check, fix });
+  }
+
+  // Always append a drive/feed check for porosity-class defects so the flow
+  // ends on something physical the user can verify.
+  if (target.defect === "Porosity" && !items.some((it) => /wire|tip|nozzle|liner|drive/i.test(it.fix))) {
+    items.push({
+      cause: "Contaminated wire or worn contact tip / nozzle",
+      check: "Look for discoloration on the wire, slag in the nozzle, or wear at the contact tip.",
+      fix: "Trim a fresh end of wire and swap the contact tip / clean the nozzle if either looks worn."
+    });
+  }
+
+  return items;
 }
+
+// Maps a manual-image src to a short reasoning interpretation so the workspace
+// can show "what this image shows / why it matters / what to check" instead of
+// rendering the image as decoration.
+export function getImageInterpretation(src: string, question?: string):
+  | { whatItShows: string; whyItMatters: string; whatToCheck: string }
+  | undefined {
+  const lower = (question ?? "").toLowerCase();
+
+  if (src.includes("owner-p37")) {
+    return {
+      whatItShows: "Bead defect catalog: porosity (small holes/craters), excessive spatter, wavy bead, and burn-through.",
+      whyItMatters: /porosity|porous|pinhole|hole/.test(lower)
+        ? "The pinholes/porous look in your bead matches the porosity row — usually wrong polarity, contaminated metal, or (MIG only) shielding-gas issues."
+        : "Compare your bead against these reference photos to match the symptom to the right cause/fix.",
+      whatToCheck: "Polarity for your process first, then clean metal to bare steel, then wire/tip/nozzle condition. For MIG only: gas cylinder, regulator flow, drafts."
+    };
+  }
+
+  if (src.includes("flux-core") || src.includes("p13")) {
+    return {
+      whatItShows: "Flux-core wiring layout on the front panel — ground clamp to the positive socket, wire feed cable to the negative socket.",
+      whyItMatters: "Flux-core is DCEN. Reversing the cables is the #1 cause of porous, weak welds when no gas is in use.",
+      whatToCheck: "Confirm ground → +, wire feed cable → −, and that no gas line is connected."
+    };
+  }
+
+  if (src.includes("mig") || src.includes("p14")) {
+    return {
+      whatItShows: "MIG wiring layout — ground clamp to the negative socket, wire feed cable to the positive socket, gas line to the regulator.",
+      whyItMatters: "MIG is DCEP and gas-shielded. Wrong polarity or no gas leads to porosity and poor fusion.",
+      whatToCheck: "Ground → −, wire feed cable → +, gas cylinder open and flowing."
+    };
+  }
+
+  if (src.includes("tig") || src.includes("p24")) {
+    return {
+      whatItShows: "TIG wiring layout — ground clamp to positive, TIG torch to negative, gas to the torch, foot pedal inside the machine.",
+      whyItMatters: "TIG needs the wire feed cable disconnected and the foot pedal plugged in or the torch will not fire correctly.",
+      whatToCheck: "Ground → +, TIG torch → −, wire feed cable disconnected, foot pedal plugged in, gas flowing."
+    };
+  }
+
+  if (src.includes("stick") || src.includes("p27")) {
+    return {
+      whatItShows: "Stick wiring layout — electrode holder to positive, ground clamp to negative, no gas, no wire feed.",
+      whyItMatters: "Stick is DCEP. Wrong polarity makes arc starts difficult and the rod stick to the work.",
+      whatToCheck: "Electrode holder → +, ground → −, clamp on bare clean metal."
+    };
+  }
+
+  if (src.includes("wire") || src.includes("spool") || src.includes("feed")) {
+    return {
+      whatItShows: "Wire feed compartment — spool, drive roller, tension knob, contact tip, and inlet guide.",
+      whyItMatters: "Loading the spool wrong or mismatching the roller/tip to the wire diameter causes bird-nesting and inconsistent feed.",
+      whatToCheck: "Spool unwinds toward the inlet guide; roller groove and contact tip match the wire diameter; tension just holds the wire without crushing it."
+    };
+  }
+
+  return undefined;
+}
+

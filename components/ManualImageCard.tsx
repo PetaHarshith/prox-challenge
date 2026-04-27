@@ -1,7 +1,8 @@
 import Image from "next/image";
 import type { ManualImage } from "@/lib/manualKnowledge";
+import type { ImageInterpretation } from "@/lib/agentResponse";
 
-export function ManualImageCard({ image }: { image: ManualImage }) {
+export function ManualImageCard({ image, interpretation }: { image: ManualImage; interpretation?: ImageInterpretation }) {
   const isPdf = image.src.endsWith(".pdf");
 
   return (
@@ -10,6 +11,23 @@ export function ManualImageCard({ image }: { image: ManualImage }) {
         <h4 className="text-xs font-bold uppercase tracking-wide text-zinc-600">Supporting reference</h4>
         <p className="mt-1 text-xs text-zinc-500">{image.title}</p>
       </div>
+
+      {interpretation ? (
+        <div className="space-y-2 rounded-lg border border-torch/30 bg-orange-50 p-3 text-xs leading-5 text-zinc-800">
+          <div>
+            <span className="font-bold uppercase tracking-wide text-torch">What it shows</span>
+            <p className="mt-0.5">{interpretation.whatItShows}</p>
+          </div>
+          <div>
+            <span className="font-bold uppercase tracking-wide text-torch">Why it matters</span>
+            <p className="mt-0.5">{interpretation.whyItMatters}</p>
+          </div>
+          <div>
+            <span className="font-bold uppercase tracking-wide text-torch">What to check</span>
+            <p className="mt-0.5">{interpretation.whatToCheck}</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="relative overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
         {isPdf ? (

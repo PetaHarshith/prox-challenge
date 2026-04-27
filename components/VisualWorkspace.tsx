@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { BookOpen, Cable, Clock3, FileImage, Gauge, SlidersHorizontal } from "lucide-react";
+import { BookOpen, Cable, Clock3, FileImage, Gauge, Loader2, SlidersHorizontal } from "lucide-react";
 import { CustomSetupDiagram } from "@/components/CustomSetupDiagram";
 import { DutyCycleCard } from "@/components/DutyCycleCard";
 import { ManualImageCard } from "@/components/ManualImageCard";
@@ -10,7 +10,7 @@ import { ImageDiagnosisPanel } from "@/components/ImageDiagnosisPanel";
 import { ProcessSelectionMatrix } from "@/components/ProcessSelectionMatrix";
 import { SettingsRecommendationCard } from "@/components/SettingsRecommendationCard";
 import { TroubleshootingFlow } from "@/components/TroubleshootingFlow";
-import type { AgentResponse } from "@/lib/agentResponse";
+import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import { dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
 
 type WorkspaceResponse = AgentResponse & { warning?: string; usedModel?: string };
@@ -29,7 +29,7 @@ function nearestDutyCycle(inputVoltage: "120V" | "240V", amperage: number) {
   }, rows[0]);
 }
 
-export function VisualWorkspace({ response, userQuestion }: { response?: WorkspaceResponse; userQuestion?: string }) {
+export function VisualWorkspace({ response, userQuestion, isLoading }: { response?: WorkspaceResponse; userQuestion?: string; isLoading?: boolean }) {
   const [tab, setTab] = useState<WorkspaceTab>("answer");
   const [process, setProcess] = useState<Exclude<WeldProcess, "unknown">>("mig");
   const [dutyVoltage, setDutyVoltage] = useState<"120V" | "240V">("240V");
@@ -79,68 +79,83 @@ export function VisualWorkspace({ response, userQuestion }: { response?: Workspa
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {tab === "answer" ? (
-          response ? (
-            <div className="space-y-4">
-              {response.visualType === "polarity" ? (
-                <WorkspaceSection title="Setup Diagram" refs={response.refs}>
-                  {response.highlightContext?.emphasis ? (
-                    <div className="rounded-md border border-torch/30 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-900">
-                      {response.highlightContext.emphasis}
-                    </div>
-                  ) : null}
-                  <CustomSetupDiagram process={response.process} />
-                </WorkspaceSection>
-              ) : null}
-              {response.visualType === "duty-cycle" && response.dutyCycleRows ? (
-                <WorkspaceSection title="Duty Cycle" refs={response.refs}>
-                  <InteractiveDutyCycle
-                    rows={response.dutyCycleRows}
-                    initialKey={response.highlightContext?.highlightKey}
+          isLoading ? (
+            <LoadingWorkspace />
+          ) : response ? (
+            response.visuals?.length ? (
+              <div className="space-y-4">
+                {response.visuals.map((spec, index) => (
+                  <VisualSpecRenderer
+                    key={`${spec.kind}-${index}`}
+                    spec={spec}
+                    refs={response.refs}
+                    userQuestion={userQuestion}
                   />
-                </WorkspaceSection>
-              ) : null}
-              {response.visualType === "process-selection" ? (
-                <WorkspaceSection title="Process Selection" refs={response.refs}>
-                  <ProcessSelectionMatrix highlightProcess={response.recommendedProcess} />
-                </WorkspaceSection>
-              ) : null}
-              {response.visualType === "image-diagnosis" && response.imageDiagnosis ? (
-                <WorkspaceSection title="Image Diagnosis" refs={response.refs}>
-                  <ImageDiagnosisPanel
-                    diagnosis={response.imageDiagnosis}
-                    reference={response.refs?.[0] ? { title: response.refs[0].title, page: response.refs[0].page } : undefined}
-                  />
-                </WorkspaceSection>
-              ) : null}
-              {response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length) ? (
-                <WorkspaceSection title="Troubleshooting Path" refs={response.refs}>
-                  <TroubleshootingFlow
-                    steps={response.checklist}
-                    items={response.troubleshootingItems}
-                    symptom={userQuestion}
-                  />
-                </WorkspaceSection>
-              ) : null}
-              {response.settingRecommendation ? (
-                <WorkspaceSection title="Settings Recommendation" refs={response.refs}>
-                  <SettingsRecommendationCard recommendation={response.settingRecommendation} />
-                </WorkspaceSection>
-              ) : null}
-              {response.manualImages?.map((manualImage) => (
-                <WorkspaceSection key={manualImage.title} title={manualImage.title} refs={manualImage.refs}>
-                  <ManualImageCard image={manualImage} />
-                </WorkspaceSection>
-              ))}
-              {!response.manualImages?.length &&
-                response.visualType !== "polarity" &&
-                response.visualType !== "duty-cycle" &&
-                response.visualType !== "process-selection" &&
-                response.visualType !== "image-diagnosis" &&
-                response.visualType !== "troubleshooting" &&
-                !response.settingRecommendation ? (
-                <EmptyWorkspace />
-              ) : null}
-            </div>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {response.visualType === "polarity" ? (
+                  <WorkspaceSection title="Setup Diagram" refs={response.refs}>
+                    {response.highlightContext?.emphasis ? (
+                      <div className="rounded-md border border-torch/30 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-900">
+                        {response.highlightContext.emphasis}
+                      </div>
+                    ) : null}
+                    <CustomSetupDiagram process={response.process} />
+                  </WorkspaceSection>
+                ) : null}
+                {response.visualType === "duty-cycle" && response.dutyCycleRows ? (
+                  <WorkspaceSection title="Duty Cycle" refs={response.refs}>
+                    <InteractiveDutyCycle
+                      rows={response.dutyCycleRows}
+                      initialKey={response.highlightContext?.highlightKey}
+                    />
+                  </WorkspaceSection>
+                ) : null}
+                {response.visualType === "process-selection" ? (
+                  <WorkspaceSection title="Process Selection" refs={response.refs}>
+                    <ProcessSelectionMatrix highlightProcess={response.recommendedProcess} />
+                  </WorkspaceSection>
+                ) : null}
+                {response.visualType === "image-diagnosis" && response.imageDiagnosis ? (
+                  <WorkspaceSection title="Image Diagnosis" refs={response.refs}>
+                    <ImageDiagnosisPanel
+                      diagnosis={response.imageDiagnosis}
+                      reference={response.refs?.[0] ? { title: response.refs[0].title, page: response.refs[0].page } : undefined}
+                    />
+                  </WorkspaceSection>
+                ) : null}
+                {response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length) ? (
+                  <WorkspaceSection title="Troubleshooting Path" refs={response.refs}>
+                    <TroubleshootingFlow
+                      steps={response.checklist}
+                      items={response.troubleshootingItems}
+                      symptom={userQuestion}
+                    />
+                  </WorkspaceSection>
+                ) : null}
+                {response.settingRecommendation ? (
+                  <WorkspaceSection title="Settings Recommendation" refs={response.refs}>
+                    <SettingsRecommendationCard recommendation={response.settingRecommendation} />
+                  </WorkspaceSection>
+                ) : null}
+                {response.manualImages?.map((manualImage) => (
+                  <WorkspaceSection key={manualImage.title} title={manualImage.title} refs={manualImage.refs}>
+                    <ManualImageCard image={manualImage} />
+                  </WorkspaceSection>
+                ))}
+                {!response.manualImages?.length &&
+                  response.visualType !== "polarity" &&
+                  response.visualType !== "duty-cycle" &&
+                  response.visualType !== "process-selection" &&
+                  response.visualType !== "image-diagnosis" &&
+                  response.visualType !== "troubleshooting" &&
+                  !response.settingRecommendation ? (
+                  <EmptyWorkspace />
+                ) : null}
+              </div>
+            )
           ) : (
             <EmptyWorkspace />
           )
@@ -293,6 +308,78 @@ function EmptyWorkspace() {
       </p>
     </div>
   );
+}
+
+function LoadingWorkspace() {
+  return (
+    <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
+      <Loader2 size={16} className="animate-spin text-torch" />
+      Building visuals for your question...
+    </div>
+  );
+}
+
+// Renders a single VisualSpec from the server-built visuals[] list. The server
+// is responsible for ordering, so this component is intentionally dumb.
+function VisualSpecRenderer({
+  spec,
+  refs,
+  userQuestion
+}: {
+  spec: VisualSpec;
+  refs?: ManualRef[];
+  userQuestion?: string;
+}) {
+  if (spec.kind === "setup_diagram") {
+    return (
+      <WorkspaceSection title="Setup Diagram" refs={refs}>
+        <CustomSetupDiagram process={spec.process} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "duty_cycle") {
+    return (
+      <WorkspaceSection title="Duty Cycle" refs={refs}>
+        <InteractiveDutyCycle rows={spec.rows} initialKey={spec.highlightKey} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "process_matrix") {
+    return (
+      <WorkspaceSection title="Process Selection" refs={refs}>
+        <ProcessSelectionMatrix highlightProcess={spec.recommendedProcess} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "troubleshooting_flow") {
+    return (
+      <WorkspaceSection title="Troubleshooting Path" refs={refs}>
+        <TroubleshootingFlow steps={spec.checklist} items={spec.items} symptom={spec.symptom ?? userQuestion} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "manual_image") {
+    return (
+      <WorkspaceSection title={spec.image.title} refs={spec.image.refs}>
+        <ManualImageCard image={spec.image} interpretation={spec.interpretation} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "settings_card") {
+    return (
+      <WorkspaceSection title="Settings Recommendation" refs={refs}>
+        <SettingsRecommendationCard recommendation={spec.recommendation} />
+      </WorkspaceSection>
+    );
+  }
+  if (spec.kind === "image_diagnosis") {
+    return (
+      <WorkspaceSection title="Image Diagnosis" refs={refs}>
+        <ImageDiagnosisPanel diagnosis={spec.diagnosis} reference={spec.reference} />
+      </WorkspaceSection>
+    );
+  }
+  return null;
 }
 
 function InteractiveDutyCycle({ rows, initialKey }: { rows: typeof dutyCycleRows; initialKey?: string }) {

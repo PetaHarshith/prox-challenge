@@ -1,13 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
-import { AgentResponseSchema, localGroundedResponse, normalizeAgentResponse, type AgentResponse } from "@/lib/agentResponse";
+import { AgentResponseSchema, localGroundedResponse, normalizeAgentResponse, type AgentResponse, type VisualSpec } from "@/lib/agentResponse";
 import { agentToolNames } from "@/lib/claudeAgent";
 import { nextConversationState, resolveConversationalQuestion, type ConversationState } from "@/lib/conversationState";
-import { retrieveManualContext, manualImages } from "@/lib/manualKnowledge";
+import { retrieveManualContext, manualImages, processManualImageIndex, type ManualImage, type WeldProcess } from "@/lib/manualKnowledge";
 import { findManualImageById, getManualImageRef } from "@/lib/manualImageIndex";
-import { planOutput, structuredCacheKey, type PlannerVisualType } from "@/lib/outputPlanner";
+import { planOutput, planVisuals, structuredCacheKey, type PlannerVisualType } from "@/lib/outputPlanner";
 import type { VisualType } from "@/lib/manualKnowledge";
 import {
+  getImageInterpretation,
   getTroubleshootingItems,
   getVisualKnowledgeForIntent,
   weldDiagnosisKnowledge
@@ -20,6 +21,8 @@ export const runtime = "nodejs";
 const systemPrompt = [
   "You are a welding assistant for the Vulcan OmniPro 220.",
   "Answer ONLY the user's exact question. Be specific, practical, and correct.",
+  "Keep the chat answer CONCISE — a 1-2 sentence direct answer + at most 3 short steps. The visual workspace carries the detailed diagram/table/flow.",
+  "Do not repeat in prose what a diagram or table already shows.",
   "If the user asks about TIG, answer TIG only. If they ask flux-core, answer flux-core only.",
   "Never enumerate all four processes (MIG, flux-core, TIG, stick) unless the user explicitly asked to choose or compare.",
   "If the user describes a wrong setup, call it out and show the corrected setup.",
@@ -48,6 +51,68 @@ const plannerVisualToUi: Record<PlannerVisualType, VisualType> = {
   manual_image_card: "manual-image",
   none: "text"
 };
+
+// Builds the canonical, ordered list of visuals for this response. The server
+// always rebuilds this from the live planner output so the workspace shows
+// exactly the right diagrams/tables/flows for the latest turn — never stale
+// visuals from a previous question.
+function buildVisualsFromPlan(
+  plannedVisuals: PlannerVisualType[],
+  response: AgentResponse,
+  question: string
+): VisualSpec[] {
+  const out: VisualSpec[] = [];
+  const seen = new Set<string>();
+  const slotProcess: WeldProcess = response.process;
+
+  function pushManualImage(image: ManualImage | undefined, q: string) {
+    if (!image) return;
+    const key = `manual_image:${image.src}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ kind: "manual_image", image, interpretation: getImageInterpretation(image.src, q) });
+  }
+
+  for (const v of plannedVisuals) {
+    if (v === "setup_diagram") {
+      const proc: Exclude<WeldProcess, "unknown"> =
+        slotProcess !== "unknown" ? slotProcess : "flux-core";
+      out.push({ kind: "setup_diagram", process: proc });
+      const wiring = manualImages[processManualImageIndex[proc]];
+      pushManualImage(wiring, question);
+    } else if (v === "duty_cycle_matrix" && response.dutyCycleRows?.length) {
+      out.push({
+        kind: "duty_cycle",
+        rows: response.dutyCycleRows,
+        highlightKey: response.highlightContext?.highlightKey,
+        highlightLabel: response.highlightContext?.highlightLabel
+      });
+    } else if (v === "process_selection_matrix") {
+      out.push({ kind: "process_matrix", recommendedProcess: response.recommendedProcess });
+    } else if (v === "troubleshooting_flow") {
+      out.push({
+        kind: "troubleshooting_flow",
+        items: response.troubleshootingItems,
+        checklist: response.checklist,
+        symptom: question
+      });
+    } else if (v === "manual_image_card") {
+      const candidate = response.manualImages?.[0];
+      pushManualImage(candidate, question);
+    } else if (v === "settings_card" && response.settingRecommendation) {
+      out.push({ kind: "settings_card", recommendation: response.settingRecommendation });
+    } else if (v === "image_diagnosis_panel" && response.imageDiagnosis) {
+      const ref = response.refs?.[0];
+      out.push({
+        kind: "image_diagnosis",
+        diagnosis: response.imageDiagnosis,
+        reference: ref ? { title: ref.title, page: ref.page } : undefined
+      });
+    }
+  }
+
+  return out;
+}
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -136,10 +201,16 @@ export async function POST(request: Request) {
     const localImage = indexedVisual
       ? manualImages.find((image) => image.src === indexedVisual.imagePath)
       : undefined;
-    const responseData = {
+    const localResponse: AgentResponse = {
       ...fallback,
+      manualImages: localImage ? [localImage] : fallback.manualImages
+    };
+    const localPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
+    const localVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
+    const responseData = {
+      ...localResponse,
       outputPlan,
-      manualImages: localImage ? [localImage] : fallback.manualImages,
+      visuals: localVisuals,
       conversationState,
       usedModel: "local-fallback" as const,
       cacheKey,
@@ -300,8 +371,12 @@ export async function POST(request: Request) {
       response.refs = [...response.refs, getManualImageRef(indexedVisual)];
     }
     if (outputPlan.intent === "troubleshooting" && !response.troubleshootingItems?.length) {
-      response.troubleshootingItems = getTroubleshootingItems(question);
+      response.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
     }
+    // Always rebuild the visuals[] from the live plan so the workspace cannot
+    // carry a stale visual from a prior turn.
+    const plannedVisuals = planVisuals(question, Boolean(body.image?.data));
+    response.visuals = buildVisualsFromPlan(plannedVisuals, response, question);
     const conversationState = nextConversationState(question, response, body.conversationState, resolved);
 
     return NextResponse.json({
@@ -312,10 +387,13 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error(error);
+    const fallbackPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
+    const fallbackVisuals = buildVisualsFromPlan(fallbackPlannedVisuals, fallback, question);
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
     return NextResponse.json(
       {
         ...fallback,
+        visuals: fallbackVisuals,
         outputPlan,
         conversationState,
         usedModel: "local-fallback",

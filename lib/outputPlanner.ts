@@ -192,3 +192,65 @@ export function structuredCacheKey(plan: OutputPlan, message: string) {
   const voltage = /240/.test(message) ? "240V" : /120/.test(message) ? "120V" : "unknown-voltage";
   return [plan.intent, plan.process, voltage, amp, material, thickness].join("|").toLowerCase();
 }
+
+const WIRE_LOADING_RE = /\b(load(?:ing)?|spool|drive roller|wire feed compartment|wire tension|liner)\b/;
+const SETTINGS_RE = /\b(setting|settings|recommend|wire speed|voltage setting|thickness|gauge|ga\b|mild steel|stainless|aluminum|1\/8|3\/16|1\/4)\b/;
+
+// Multi-visual planner: returns the ordered visuals to render for this message.
+// Always derived from the live message — never carries state from prior turns.
+//
+// Regression cases (these MUST stay green):
+//
+//  1. "I'm welding 1/8 steel outdoors with no gas at 200A on 240V. Which
+//     process should I use, how should I wire it, and how long can I weld?"
+//     -> [process_selection_matrix, setup_diagram(flux-core), duty_cycle_matrix]
+//
+//  2. "My flux-core welds have pinholes and look porous. What's wrong?"
+//     -> [troubleshooting_flow, manual_image_card(weld diagnosis)]
+//
+//  3. "If I'm running 200A on 240V, how long can I weld?"
+//     -> [duty_cycle_matrix]   (no stale setup diagram)
+//
+//  4. "I'm setting up flux-core outdoors with no gas. Where exactly do my
+//     cables go?"
+//     -> [setup_diagram(flux-core)]   (no stale duty cycle)
+export function planVisuals(message: string, hasUploadedImage: boolean): PlannerVisualType[] {
+  if (hasUploadedImage) return ["image_diagnosis_panel"];
+
+  const lower = message.toLowerCase();
+  const slots = extractSlots(message);
+  const visuals: PlannerVisualType[] = [];
+
+  const isSetup = SETUP_RE.test(lower);
+  const isDuty = DUTY_RE.test(lower);
+  const isTrouble = TROUBLE_RE.test(lower);
+  const isProcessChoice = PROCESS_SELECTION_RE.test(lower);
+  const isWireLoading = WIRE_LOADING_RE.test(lower);
+  const isSettings = SETTINGS_RE.test(lower) && !isSetup && !isDuty && !isTrouble;
+
+  // Process choice goes first when explicitly asked OR implied by "no gas /
+  // outdoors" combined with setup/duty context.
+  if (isProcessChoice || (/(no gas|don'?t have gas|outdoors|outside)/.test(lower) && (isSetup || isDuty))) {
+    visuals.push("process_selection_matrix");
+  }
+
+  if (isTrouble) visuals.push("troubleshooting_flow");
+
+  if (isSetup && slots.process !== "unknown") visuals.push("setup_diagram");
+  // Implied flux-core setup from "no gas / outdoors" + cable phrasing.
+  else if (isSetup && /(no gas|don'?t have gas|outdoors|outside)/.test(lower)) visuals.push("setup_diagram");
+
+  if (isDuty) visuals.push("duty_cycle_matrix");
+
+  if (isWireLoading) visuals.push("manual_image_card");
+
+  if (isSettings) visuals.push("settings_card");
+
+  // Troubleshooting always pairs with the weld diagnosis manual image so the
+  // visual cue (porosity holes, spatter, etc.) becomes reasoning evidence.
+  if (isTrouble && !visuals.includes("manual_image_card")) visuals.push("manual_image_card");
+
+  // Empty -> no visual (chat-only answer).
+  return visuals;
+}
+

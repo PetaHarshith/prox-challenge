@@ -21,12 +21,23 @@ type ChatTurn = {
 const acceptedImageTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"] as const;
 
 const suggestionChips = [
-  { label: "TIG setup", prompt: "I need to set up TIG. What cables go where?" },
-  { label: "MIG duty cycle", prompt: "What's the duty cycle for MIG at 200A on 240V?" },
-  { label: "Flux-core porosity", prompt: "I'm getting porosity in my flux-cored welds. What should I check?" },
-  { label: "Load wire", prompt: "How do I load the wire spool?" },
-  { label: "Choose process", prompt: "How do I choose between MIG, flux-core, TIG, and stick?" },
-  { label: "MIG vs TIG", prompt: "What's the difference between MIG and TIG welding?" }
+  {
+    label: "Outdoors, no gas, 200A",
+    prompt:
+      "I'm welding 1/8 steel outdoors with no gas at 200A on 240V. Which process should I use, how should I wire it, and how long can I weld?"
+  },
+  {
+    label: "Flux-core porosity",
+    prompt: "My flux-core welds have pinholes and look porous. What's wrong?"
+  },
+  {
+    label: "Duty cycle 200A/240V",
+    prompt: "If I'm running 200A on 240V, how long can I weld?"
+  },
+  {
+    label: "Flux-core cables",
+    prompt: "I'm setting up flux-core outdoors with no gas. Where exactly do my cables go?"
+  }
 ];
 
 // Client-side session cache (cleared on page reload)
@@ -353,7 +364,7 @@ export default function Home() {
           </form>
         </section>
 
-        <VisualWorkspace response={latestResponse} userQuestion={latestUserQuestion} />
+        <VisualWorkspace response={latestResponse} userQuestion={latestUserQuestion} isLoading={isLoading} />
       </div>
     </main>
   );

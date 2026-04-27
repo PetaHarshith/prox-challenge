@@ -117,11 +117,45 @@ type ParsedAgentResponse = z.infer<typeof AgentResponseSchema>;
 const PartialAgentResponseSchema = AgentResponseSchema.partial();
 type PartialParsedAgentResponse = z.infer<typeof PartialAgentResponseSchema>;
 
+// Manual-image interpretation shown above the image so it acts as reasoning
+// evidence ("what this image shows / why it matters / what to check") instead
+// of decoration.
+export type ImageInterpretation = {
+  whatItShows: string;
+  whyItMatters: string;
+  whatToCheck: string;
+};
+
+// Discriminated union of UI-renderable visuals. The server builds an ordered
+// list per response so the workspace shows exactly the right
+// diagram/table/flow/image and never carries a stale visual from a previous
+// turn.
+export type VisualSpec =
+  | { kind: "setup_diagram"; process: Exclude<WeldProcess, "unknown"> }
+  | { kind: "duty_cycle"; rows: DutyCycleRow[]; highlightKey?: string; highlightLabel?: string }
+  | { kind: "process_matrix"; recommendedProcess?: Exclude<WeldProcess, "unknown"> }
+  | {
+    kind: "troubleshooting_flow";
+    items?: Array<{ cause: string; check: string; fix: string }>;
+    checklist?: string[];
+    symptom?: string;
+  }
+  | { kind: "manual_image"; image: ManualImage; interpretation?: ImageInterpretation }
+  | { kind: "settings_card"; recommendation: SettingRecommendation }
+  | {
+    kind: "image_diagnosis";
+    diagnosis: NonNullable<ParsedAgentResponse["imageDiagnosis"]>;
+    reference?: { title: string; page?: string };
+  };
+
 export type AgentResponse = Omit<ParsedAgentResponse, "manualImages"> & {
   dutyCycleRows?: DutyCycleRow[];
   manualImages?: ManualImage[];
   settingRecommendation?: SettingRecommendation;
   outputPlan?: ParsedAgentResponse["outputPlan"];
+  // Ordered visuals for the workspace. When set, the workspace renders only
+  // these in order; when unset, the workspace falls back to legacy rendering.
+  visuals?: VisualSpec[];
 };
 
 export function localGroundedResponse(question: string): AgentResponse {
