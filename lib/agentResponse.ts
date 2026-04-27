@@ -1,0 +1,422 @@
+import { z } from "zod";
+import type { DutyCycleRow, ManualImage, ManualRef, SettingRecommendation, VisualType, WeldProcess } from "./manualKnowledge";
+import {
+  dutyCycleRows,
+  extractMaterial,
+  extractThickness,
+  manualImages,
+  type ManualImageGuide,
+  polaritySetups,
+  processManualImageIndex,
+  recommendSettings,
+  retrieveManualContext,
+  troubleshootingChecks
+} from "./manualKnowledge";
+
+export const AgentResponseSchema = z.object({
+  answer: z.string(),
+  visualType: z.enum(["polarity", "duty-cycle", "troubleshooting", "manual-image", "settings", "process-selection", "image-diagnosis", "text"]),
+  process: z.enum(["mig", "flux-core", "tig", "stick", "unknown"]),
+  refs: z.array(
+    z.object({
+      title: z.string(),
+      source: z.enum(["Owner's Manual", "Quick Start Guide", "Selection Chart"]),
+      page: z.string().optional(),
+      url: z.string()
+    })
+  ),
+  checklist: z.array(z.string()).optional(),
+  manualImages: z.array(
+    z.object({
+      title: z.string(),
+      description: z.string(),
+      src: z.string(),
+      refs: z.array(
+        z.object({
+          title: z.string(),
+          source: z.enum(["Owner's Manual", "Quick Start Guide", "Selection Chart"]),
+          page: z.string().optional(),
+          url: z.string()
+        })
+      ),
+      guide: z.object({
+        heading: z.string(),
+        steps: z.array(z.string()),
+        next: z.string(),
+        overlays: z.array(
+          z.object({
+            label: z.string(),
+            x: z.number(),
+            y: z.number(),
+            w: z.number().optional(),
+            h: z.number().optional()
+          })
+        )
+      }).optional()
+    })
+  ).optional(),
+  settingRecommendation: z.object({
+    process: z.enum(["mig", "flux-core", "tig", "stick"]),
+    material: z.string(),
+    thickness: z.string(),
+    inputVoltage: z.enum(["120V", "240V"]),
+    summary: z.string(),
+    steps: z.array(z.string()),
+    caution: z.string().optional()
+  }).optional(),
+  recommendedProcess: z.enum(["mig", "flux-core", "tig", "stick"]).optional(),
+  imageDiagnosis: z.object({
+    category: z.enum(["weld_bead_defect", "wiring_setup", "front_panel", "wire_feed", "unknown"]),
+    likelyIssue: z.string(),
+    visualClues: z.array(z.string()),
+    checks: z.array(z.string()),
+    fixes: z.array(z.string()),
+    confidence: z.enum(["low", "medium", "high"]),
+    caution: z.string().optional()
+  }).optional(),
+  outputPlan: z.object({
+    intent: z.string(),
+    process: z.enum(["mig", "flux-core", "tig", "stick", "unknown"]),
+    requiredFacts: z.array(z.string()),
+    visualType: z.string(),
+    visualId: z.string().optional(),
+    needsClaudeVision: z.boolean(),
+    needsClarification: z.boolean(),
+    clarificationQuestion: z.string().optional(),
+    slots: z.object({
+      process: z.enum(["mig", "flux-core", "tig", "stick", "unknown"]),
+      voltage: z.enum(["120V", "240V"]).optional(),
+      amperage: z.number().optional(),
+      topic: z.enum(["torch", "ground", "wire feed", "electrode", "gas", "foot pedal"]).optional()
+    }).optional()
+  }).optional(),
+  // Highlighting context for visual components
+  highlightContext: z.object({
+    type: z.enum(["duty-cycle", "polarity", "troubleshooting"]).optional(),
+    highlightKey: z.string().optional(), // e.g., "200A-240V" for duty cycle
+    highlightLabel: z.string().optional(), // e.g., "2.5 min weld / 7.5 min rest"
+    emphasis: z.string().optional() // Key phrase to emphasize in answer
+  }).optional()
+});
+
+type ParsedAgentResponse = z.infer<typeof AgentResponseSchema>;
+const PartialAgentResponseSchema = AgentResponseSchema.partial();
+type PartialParsedAgentResponse = z.infer<typeof PartialAgentResponseSchema>;
+
+export type AgentResponse = Omit<ParsedAgentResponse, "manualImages"> & {
+  dutyCycleRows?: DutyCycleRow[];
+  manualImages?: ManualImage[];
+  settingRecommendation?: SettingRecommendation;
+  outputPlan?: ParsedAgentResponse["outputPlan"];
+};
+
+export function localGroundedResponse(question: string): AgentResponse {
+  const context = retrieveManualContext(question);
+  const lower = question.toLowerCase();
+  const process = context.process;
+  const visualType = context.visualType;
+
+  if (visualType === "polarity" && process !== "unknown") {
+    const setup = polaritySetups[process];
+    return {
+      answer: setupAnswer(process),
+      visualType,
+      process,
+      refs: setup.refs,
+      manualImages: [manualImages[processManualImageIndex[process]]],
+      highlightContext: {
+        type: "polarity",
+        emphasis: `${setup.positive} → +, ${setup.negative} → −`
+      }
+    };
+  }
+
+  if (visualType === "polarity") {
+    return {
+      answer: "Which process are you setting up: solid-core MIG, gasless flux-core, TIG, or stick?",
+      visualType,
+      process: "unknown",
+      refs: context.refs
+    };
+  }
+
+  if (visualType === "duty-cycle") {
+    const duty = extractDutyCycleMatch(question);
+    const highlightLabel = duty ? `${duty.weldMinutes} min weld / ${duty.restMinutes} min rest` : undefined;
+    return {
+      answer: duty
+        ? `At ${duty.amperage} on ${duty.input}, you can weld for ${duty.weldMinutes} minutes, then let it cool for ${duty.restMinutes} minutes.`
+        : "Use a 10-minute duty-cycle timer: weld for the rated minutes, then let the machine cool for the rest.",
+      visualType,
+      process,
+      refs: context.refs,
+      dutyCycleRows,
+      highlightContext: duty
+        ? {
+          type: "duty-cycle",
+          highlightKey: `${duty.input}-${duty.amperage}`,
+          highlightLabel
+        }
+        : undefined
+    };
+  }
+
+  if (visualType === "troubleshooting") {
+    const checklist = /porosity|pinhole|hole/.test(lower)
+      ? troubleshootingChecks.porosity
+      : /feed|bird/.test(lower)
+        ? troubleshootingChecks.wire
+        : troubleshootingChecks.badWeld;
+    return {
+      answer: "Start with polarity, clean metal, and shielding/feed checks before changing technique. Tip: change one thing at a time so you know what fixed it.",
+      visualType,
+      process,
+      refs: context.refs,
+      checklist,
+      manualImages: /feed|wire|spool/.test(lower) ? [manualImages[1]] : [manualImages[7]]
+    };
+  }
+
+  if (visualType === "settings") {
+    const material = extractMaterial(question);
+    const thickness = extractThickness(question);
+    const inputVoltage: "120V" | "240V" = /120\s*v|\b120\b/.test(lower) ? "120V" : "240V";
+
+    if (process === "unknown") {
+      return {
+        answer: "Are you using MIG, TIG, flux-core, or stick?",
+        visualType,
+        process: "unknown",
+        refs: context.refs
+      };
+    }
+
+    if (!material) {
+      return {
+        answer: "Got it. What material are you welding?",
+        visualType,
+        process,
+        refs: context.refs
+      };
+    }
+
+    if (!thickness) {
+      return {
+        answer: "Got it. What material thickness are you welding?",
+        visualType,
+        process,
+        refs: context.refs
+      };
+    }
+
+    return {
+      answer: `Start with ${process} for ${thickness} ${material}, then tune from a short test bead.`,
+      visualType,
+      process,
+      refs: context.refs,
+      manualImages: [manualImages[2]],
+      settingRecommendation: recommendSettings({
+        process,
+        material,
+        thickness,
+        inputVoltage
+      })
+    };
+  }
+
+  if (visualType === "process-selection") {
+    return {
+      answer: "Use MIG for easy clean indoor welds, flux-core when you do not have gas or need outdoor welding, TIG for precision, and stick for rugged or thicker dirty material.",
+      visualType,
+      process,
+      refs: context.refs,
+      recommendedProcess: process === "unknown" ? "mig" : process
+    };
+  }
+
+  if (visualType === "manual-image") {
+    return {
+      answer: "Load the spool so the wire feeds cleanly into the guide, then match the roller and tip to the wire size. Tip: keep the gun lead straight while feeding wire.",
+      visualType,
+      process,
+      refs: context.refs,
+      manualImages: [manualImages[1]]
+    };
+  }
+
+  return {
+    answer: "Tell me what you are setting up or fixing, and I will guide the next step.",
+    visualType,
+    process,
+    refs: context.refs
+  };
+}
+
+export function normalizeAgentResponse(question: string, parsed?: PartialParsedAgentResponse): AgentResponse {
+  const fallback = localGroundedResponse(question);
+  const parsedManualImages = parsed?.manualImages?.length ? hydrateManualImages(parsed.manualImages) : undefined;
+  const merged: AgentResponse = {
+    ...fallback,
+    ...parsed,
+    refs: parsed?.refs?.length ? parsed.refs : fallback.refs,
+    manualImages: parsedManualImages ?? fallback.manualImages,
+    checklist: parsed?.checklist?.length ? parsed.checklist : fallback.checklist,
+    settingRecommendation: parsed?.settingRecommendation ?? fallback.settingRecommendation,
+    process: (parsed?.process && parsed.process !== "unknown" ? parsed.process : fallback.process) as WeldProcess,
+    visualType: (parsed?.visualType ?? fallback.visualType) as VisualType
+  };
+
+  if (merged.visualType === "duty-cycle") merged.dutyCycleRows = dutyCycleRows;
+  if (merged.visualType === "polarity" && merged.process !== "unknown" && !merged.manualImages?.length) {
+    merged.manualImages = [manualImages[processManualImageIndex[merged.process]]];
+  }
+  if (merged.visualType === "settings" && !merged.settingRecommendation) {
+    const process = merged.process === "unknown" ? "mig" : merged.process;
+    merged.settingRecommendation = recommendSettings({
+      process,
+      material: "mild steel",
+      thickness: "1/8 inch",
+      inputVoltage: "240V"
+    });
+  }
+  if (merged.visualType === "polarity" && merged.process !== "unknown") {
+    merged.answer = enforceSafetyCriticalSetup(merged.process, merged.answer);
+  }
+
+  if (merged.manualImages?.length) {
+    merged.manualImages = hydrateManualImages(merged.manualImages);
+  }
+
+  const duty = merged.visualType === "duty-cycle" ? extractDutyCycleMatch(question) : undefined;
+  if (duty && !merged.highlightContext?.highlightKey) {
+    merged.highlightContext = {
+      ...merged.highlightContext,
+      type: "duty-cycle",
+      highlightKey: `${duty.input}-${duty.amperage}`,
+      highlightLabel: `${duty.weldMinutes} min weld / ${duty.restMinutes} min rest`
+    };
+  }
+
+  if (merged.visualType === "duty-cycle" && duty && !startsWithDirectAnswer(merged.answer)) {
+    merged.answer = `At ${duty.amperage} on ${duty.input}, you can weld for ${duty.weldMinutes} minutes, then let it cool for ${duty.restMinutes} minutes.\n\n${merged.answer}`;
+  }
+
+  if (merged.visualType === "polarity" && merged.process !== "unknown" && !startsWithDirectAnswer(merged.answer)) {
+    const setup = polaritySetups[merged.process];
+    merged.answer = `${processLabel(merged.process)} setup: **${setup.positive} → +** and **${setup.negative} → −**.\n\n${merged.answer}`;
+  }
+
+  return merged;
+}
+
+function hydrateManualImages(images: NonNullable<PartialParsedAgentResponse["manualImages"]> | ManualImage[]): ManualImage[] {
+  return images.map((image) => {
+    const canonical = manualImages.find((candidate) => candidate.src === image.src || candidate.title === image.title);
+    return {
+      ...image,
+      guide: image.guide ?? canonical?.guide ?? fallbackGuide(image.title)
+    };
+  });
+}
+
+function fallbackGuide(title: string): ManualImageGuide {
+  return {
+    heading: title,
+    steps: ["Find the highlighted area.", "Match it to your machine.", "Make the connection or adjustment before welding."],
+    next: "Do a quick test before starting the real weld.",
+    overlays: []
+  };
+}
+
+function setupAnswer(process: Exclude<WeldProcess, "unknown">) {
+  const answers: Record<Exclude<WeldProcess, "unknown">, string> = {
+    mig: `Use DCEP for MIG with gas: **ground clamp → negative (−)** and **wire feed cable → positive (+)**.
+
+**Steps:**
+1. Turn off and unplug the welder.
+2. Plug the ground clamp into the negative socket.
+3. Plug the wire feed power cable into the positive socket.
+4. Connect shielding gas to the regulator and welder inlet.
+5. Test wire feed before welding.
+
+**Tip:** If shielding gas is not connected, the weld will have porosity. Check the cylinder valve and regulator flow.
+
+**Next:** Select MIG on the front panel and set wire speed/voltage for your material thickness.`,
+    "flux-core": `Use DCEN for flux-core gasless: **ground clamp → positive (+)** and **wire feed cable → negative (−)**.
+
+**Steps:**
+1. Turn off and unplug the welder.
+2. Plug the ground clamp into the positive socket.
+3. Plug the wire feed power cable into the negative socket.
+4. Leave the gas inlet disconnected—do not use shielding gas.
+5. Test wire feed before welding.
+
+**Tip:** Flux-core is self-shielded. If you connect gas, the weld will be weak.
+
+**Next:** Select flux-core on the front panel and set wire speed/voltage for your material.`,
+    tig: `Use DCEN for TIG: **ground clamp → positive (+)** and **TIG torch → negative (−)**.
+
+**Steps:**
+1. Turn off and unplug the welder.
+2. Plug the ground clamp into the positive socket.
+3. Plug the TIG torch into the negative socket.
+4. Leave the wire feed power cable disconnected.
+5. Connect the gas line from the cylinder through the regulator to the TIG torch.
+6. Plug the foot pedal into the connector inside the welder.
+
+**Tip:** If the wire feed cable is still plugged in, the torch will not work correctly.
+
+**Next:** Select TIG on the front panel, set amperage and gas flow, then test on scrap metal.`,
+    stick: `Use DCEP for stick: **electrode holder → positive (+)** and **ground clamp → negative (−)**.
+
+**Steps:**
+1. Turn off and unplug the welder.
+2. Plug the electrode holder into the positive socket.
+3. Plug the ground clamp into the negative socket.
+4. Leave the wire feed power cable disconnected—no wire feed is used.
+5. Clamp the ground lead directly to clean bare metal.
+
+**Tip:** Clean rust and paint off the contact area so the clamp makes good contact.
+
+**Next:** Select stick on the front panel and set amperage for your electrode rod size.`
+  };
+
+  return answers[process];
+}
+
+function startsWithDirectAnswer(answer: string) {
+  const firstLine = answer.split("\n").find((line) => line.trim().length > 0) ?? "";
+  return /\byou can weld for\b|\bsetup:\b|^\s*at\s+\d+/i.test(firstLine);
+}
+
+function processLabel(process: Exclude<WeldProcess, "unknown">) {
+  return process === "flux-core" ? "Flux-core" : process.toUpperCase();
+}
+
+function extractDutyCycleMatch(question: string) {
+  const lower = question.toLowerCase();
+  const ampMatch = lower.match(/(\d+)\s*a(?:mp)?/i);
+  const voltage: "120V" | "240V" = /240/.test(lower) ? "240V" : "120V";
+  const rows = dutyCycleRows.filter((row) => row.input === voltage);
+  if (!rows.length) return undefined;
+  if (!ampMatch) return rows[0];
+  const amperage = Number(ampMatch[1]);
+  return rows.reduce((best, row) => {
+    const rowAmps = Number(row.amperage.replace("A", ""));
+    const bestAmps = Number(best.amperage.replace("A", ""));
+    return Math.abs(rowAmps - amperage) < Math.abs(bestAmps - amperage) ? row : best;
+  }, rows[0]);
+}
+
+function enforceSafetyCriticalSetup(process: Exclude<WeldProcess, "unknown">, answer: string) {
+  const required: Record<Exclude<WeldProcess, "unknown">, string[]> = {
+    tig: ["ground clamp → positive", "tig torch → negative", "wire feed"],
+    "flux-core": ["ground clamp → positive", "wire feed cable → negative"],
+    mig: ["ground clamp → negative", "wire feed cable → positive", "gas"],
+    stick: ["ground clamp → negative", "electrode holder → positive", "wire feed"]
+  };
+  const lower = answer.toLowerCase();
+  const valid = required[process].every((token) => lower.includes(token));
+  if (valid) return answer;
+  return setupAnswer(process);
+}

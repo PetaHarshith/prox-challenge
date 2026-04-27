@@ -1,92 +1,163 @@
-# Prox Founding Engineer Challenge
+# Vulcan OmniPro 220 Multimodal Reasoning Assistant
 
-<img src="product.webp" alt="Vulcan OmniPro 220" width="400" /> <img src="product-inside.webp" alt="Vulcan OmniPro 220 — inside panel" width="400" />
+This app is a Next.js garage-side agent for the Prox challenge. It combines:
 
-## The Product
+- structured manual facts
+- indexed manual visual knowledge
+- planner-driven output selection
+- optional Claude vision reasoning for uploads
+- deterministic safety checks for polarity/setup
 
-The [Vulcan OmniPro 220](https://www.harborfreight.com/omnipro-220-industrial-multiprocess-welder-with-120240v-input-57812.html) is a multiprocess welding system sold by Harbor Freight. It supports four welding processes (MIG, Flux-Cored, TIG, and Stick), runs on both 120V and 240V input, and has an LCD-based synergic control system.
+Goal: **read, think, and show** the answer clearly.
 
-Its owner's manual is 48 pages of dense technical content. Duty cycle matrices across multiple voltages and amperages, polarity setup procedures that differ per welding process, wire feed mechanisms with specific tensioner calibrations, wiring schematics, troubleshooting matrices, weld diagnosis diagrams, and a full parts list.
+## Architecture
 
-This is exactly the kind of product Prox exists for. Nobody knows how to use this machine straight out of the box but has time to read 48 page manual, but a complicated machine needs expert-level support.
-
-Additional video: https://www.youtube.com/watch?v=kxGDoGcnhBw
-
-## Your Job
-
-Build a multimodal reasoning agent for the Vulcan OmniPro 220 using the Claude Agent SDK. The agent must be able to answer deep technical questions about this product accurately, helpfully, and not just in text.
-
-The manuals are in the `files/` directory.
-
-**There is no limit to how far you can go.** You can integrate voice. You can build a full interactive experience. Sky is the limit. The more ambitious and polished, the better.
-
-## What We're Testing
-
-### 1. Deep Technical Accuracy
-
-Your agent needs to answer questions like these correctly:
-
-- "What's the duty cycle for MIG welding at 200A on 240V?"
-- "I'm getting porosity in my flux-cored welds. What should I check?"
-- "What polarity setup do I need for TIG welding? Which socket does the ground clamp go in?"
-
-We will test with questions that require cross-referencing multiple manual sections, understanding visual content (diagrams, schematics, charts), and handling ambiguous questions that need clarification from the user.
-
-### 2. Multimodal Responses
-
-This is the most important part. Your agent must not be text-only.
-
-- If someone asks about polarity setup, the agent should draw or show a diagram of which cable goes in which socket, not just describe it.
-- If the answer relates to a specific image in the manual (the wire feed mechanism, the front panel controls, the weld diagnosis examples), the agent should surface that image.
-- If a question is complex enough, the agent should generate interactive content: a duty cycle calculator, a troubleshooting flowchart, a settings configurator that takes process + material + thickness and outputs recommended wire speed and voltage.
-
-When something is too cognitively hard to explain in words, the agent should draw it. Real-time diagrams, interactive schematics, visual walkthroughs generated through code.
-
-For your agent to handle these responses well you need to reverse engineer Claude artifacts. Here are two places where you can start:
-- https://claude.ai/artifacts (see how Claude renders interactive artifacts in chat)
-- https://www.reidbarber.com/blog/reverse-engineering-claude-artifacts
-
-### 3. Tone and Helpfulness
-
-Imagine your user just bought this welder and is standing in their garage trying to set it up. They're not an idiot, but they're not a professional welder either.
-
-### 4. Knowledge Extraction Quality
-
-The manual has a mix of text, tables, labeled diagrams, schematics, and decision matrices. Some critical information exists only in images (the welding process selection chart, the weld diagnosis photos, the wiring schematic). We want to see that your agent understands and presents the visual content, not just the text.
-
-## Tech Requirements
-
-- Use the [Anthropic Claude Agent SDK](https://docs.anthropic.com) as the foundation for your agent.
-- The project must run locally with a single API key provided via `.env`.
-- You are responsible for your own API costs during development.
-
-## How to Present Your Work
-
-**This matters.** Your submission is not just the code — it's how you present it.
-
-- **Build a frontend.** The best way for us to evaluate your agent is if it has a clean, simple UI we can run immediately. This is realistically the only way to properly demo an agent like this.
-- **Hosting is a plus.** If you host it somewhere we can access without cloning, that's a strong signal. Not required, but it removes friction and shows initiative.
-- **Write a clear README.** Explain how your agent works, what design decisions you made, how knowledge is extracted and represented, and how to run it. Your documentation will be evaluated — we want to see how you think and communicate, not just how you code.
-- **Video walkthrough is a huge plus.** Record yourself demoing the agent and explaining your approach. Walk through the hard questions, show how it handles multimodal responses, explain your architecture. This gives us a much richer picture of your work than code alone.
-
-We should be running your agent within 2 minutes of cloning your repo:
-
-```bash
-git clone <your-fork>
-cd <your-fork>
-cp .env.example .env   # we plug in our own Anthropic API key
-# your install command (npm install, uv install, etc.)
-# your run command (npm run dev, python app.py, etc.)
+```text
+app/page.tsx                        Chat UX + image upload + stop button
+app/api/chat/route.ts               Main reasoning pipeline
+lib/manualKnowledge.ts              Core manual facts (polarity/duty/settings/troubleshooting)
+lib/manualImageIndex.ts             Structured visual knowledge index (manual pages/images)
+lib/outputPlanner.ts                Intent + visual planner and structured cache key
+lib/agentResponse.ts                Response schema + normalization + safety validation
+lib/conversationState.ts            Clarification state (process/material/thickness)
+components/VisualWorkspace.tsx      Planner-driven visual rendering
+components/CustomSetupDiagram.tsx   Setup/polarity diagram (highlighted connections)
+components/DutyCycleCard.tsx        Duty matrix with highlighted row + weld/rest indicator
+components/ProcessSelectionMatrix.tsx Process comparison matrix
+components/TroubleshootingFlow.tsx  Troubleshooting flow/checklist
+components/SettingsRecommendationCard.tsx Settings card with exact/closest guidance
+components/ImageDiagnosisPanel.tsx  Upload image diagnosis results
+components/ManualImageCard.tsx      Manual page reference card
 ```
 
-If it takes longer than that to set up, that's a problem.
+## Request Pipeline
 
-## What to Submit
+1. User message (and optional image) is posted to `/api/chat`.
+2. `outputPlanner` determines intent, visual type, required facts, and whether vision is needed.
+3. System checks deterministic paths:
+   - prebuilt intents
+   - structured cache key: `intent|process|voltage|amperage|material|thickness`
+   - direct knowledge retrieval
+4. If needed, Claude is called with:
+   - manual text context
+   - manual image extracted facts from `manualImageIndex`
+   - strict output JSON contract
+5. If upload exists and planner requests vision, image is classified (weld defect / wiring / front panel / wire feed / unknown).
+6. `normalizeAgentResponse` enforces answer-first style and validates safety-critical polarity facts.
+7. UI renders visual artifact matching the plan (matrix/diagram/checklist/diagnosis card).
 
-1. Fork this repo.
-2. Build your solution.
-3. Submit your fork URL through the form at [useprox.com/join/challenge](https://useprox.com/join/challenge).
+## Multimodal Knowledge
 
-## What Happens Next
+### `manualKnowledge`
+Contains deterministic facts:
 
-We review submissions on a rolling basis and respond to every single one within a few days. Good luck.
+- polarity mappings per process
+- duty cycle rows
+- troubleshooting checks
+- settings guidance
+
+### `manualImageIndex`
+Adds visual facts for key pages:
+
+- front panel controls
+- wire-feed interior / quick wire loading
+- MIG / flux-core / TIG / stick setup diagrams
+- duty chart
+- weld diagnosis page
+- process selection chart
+
+Each entry includes:
+
+- id, title, source, page, imagePath
+- visual description + key labels
+- related intents/processes
+- extracted facts
+- when to show it
+
+This allows the agent to reason over image-derived manual facts, not just display image cards.
+
+## Output Planner
+
+`lib/outputPlanner.ts` maps message + context into:
+
+- intent
+- process
+- requiredFacts
+- visualType
+- visualId
+- needsClaudeVision
+- needsClarification + clarificationQuestion
+
+Visual types:
+
+- `setup_diagram`
+- `duty_cycle_matrix`
+- `process_selection_matrix`
+- `settings_card`
+- `troubleshooting_flow`
+- `image_diagnosis_panel`
+- `manual_image_card`
+- `none`
+
+## Safety Validation
+
+Before returning polarity/setup guidance, safety facts are validated.
+If model output conflicts, deterministic templates replace the answer.
+
+Validated mappings:
+
+- TIG: ground clamp `+`, TIG torch `-`, wire feed disconnected
+- Flux-core: ground clamp `+`, wire feed `-`
+- MIG gas: ground clamp `-`, wire feed `+`, gas required
+- Stick: ground clamp `-`, electrode holder `+`, wire feed disconnected
+
+## Visual Confirmation Behavior
+
+Visuals are never generic. They confirm the answer:
+
+- Duty cycle: highlighted row + weld/rest indicator
+- Setup: highlighted sockets/connections + disconnected warnings
+- Process selection: highlighted recommended process
+- Troubleshooting: first checks emphasized
+- Image uploads: diagnosis panel with clues/checks/fixes/confidence
+
+## Chat Response Style
+
+Responses follow practical structure:
+
+- direct answer first
+- short steps
+- common mistake
+- next action
+- sources as secondary references
+
+## Run in Under 2 Minutes
+
+```bash
+cp .env.example .env
+# add ANTHROPIC_API_KEY
+npm install
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000)
+
+## Validation Commands
+
+```bash
+npm run lint
+npm run build
+```
+
+## Tested Prompts
+
+- What’s the duty cycle for MIG welding at 200A on 240V?
+- If I weld continuously at 200A, when do I need to stop?
+- What polarity setup do I need for TIG welding?
+- I’m using flux-core wire without gas. Which cable goes where?
+- I’m getting porosity in my flux-cored welds. What should I check?
+- How do I load the wire spool?
+- How do I choose between MIG, flux-core, TIG, and stick?
+- What settings should I use for 1/8 inch mild steel?
+- Upload a weld bead photo and diagnose it.
+- Upload a front panel photo and explain what I’m looking at.
