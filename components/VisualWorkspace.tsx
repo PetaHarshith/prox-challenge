@@ -29,7 +29,7 @@ function nearestDutyCycle(inputVoltage: "120V" | "240V", amperage: number) {
   }, rows[0]);
 }
 
-export function VisualWorkspace({ response }: { response?: WorkspaceResponse }) {
+export function VisualWorkspace({ response, userQuestion }: { response?: WorkspaceResponse; userQuestion?: string }) {
   const [tab, setTab] = useState<WorkspaceTab>("answer");
   const [process, setProcess] = useState<Exclude<WeldProcess, "unknown">>("mig");
   const [dutyVoltage, setDutyVoltage] = useState<"120V" | "240V">("240V");
@@ -93,10 +93,9 @@ export function VisualWorkspace({ response }: { response?: WorkspaceResponse }) 
               ) : null}
               {response.visualType === "duty-cycle" && response.dutyCycleRows ? (
                 <WorkspaceSection title="Duty Cycle" refs={response.refs}>
-                  <DutyCycleCard
+                  <InteractiveDutyCycle
                     rows={response.dutyCycleRows}
-                    highlightKey={response.highlightContext?.highlightKey}
-                    highlightLabel={response.highlightContext?.highlightLabel}
+                    initialKey={response.highlightContext?.highlightKey}
                   />
                 </WorkspaceSection>
               ) : null}
@@ -115,7 +114,11 @@ export function VisualWorkspace({ response }: { response?: WorkspaceResponse }) 
               ) : null}
               {response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length) ? (
                 <WorkspaceSection title="Troubleshooting Path" refs={response.refs}>
-                  <TroubleshootingFlow steps={response.checklist} items={response.troubleshootingItems} />
+                  <TroubleshootingFlow
+                    steps={response.checklist}
+                    items={response.troubleshootingItems}
+                    symptom={userQuestion}
+                  />
                 </WorkspaceSection>
               ) : null}
               {response.settingRecommendation ? (
@@ -288,6 +291,73 @@ function EmptyWorkspace() {
       <p className="mt-3 text-xs leading-5 text-zinc-500">
         This panel follows the chat and updates when the assistant returns visual or tabular guidance.
       </p>
+    </div>
+  );
+}
+
+function InteractiveDutyCycle({ rows, initialKey }: { rows: typeof dutyCycleRows; initialKey?: string }) {
+  const seed = useMemo(() => {
+    if (initialKey) {
+      const match = rows.find((row) => `${row.input}-${row.amperage}` === initialKey);
+      if (match) return { voltage: match.input, amps: Number(match.amperage.replace("A", "")) };
+    }
+    return { voltage: "240V" as const, amps: 200 };
+  }, [initialKey, rows]);
+
+  const [voltage, setVoltage] = useState<"120V" | "240V">(seed.voltage);
+  const [amps, setAmps] = useState<number>(seed.amps);
+
+  const duty = nearestDutyCycle(voltage, amps);
+  const max = voltage === "120V" ? 140 : 220;
+  const min = 30;
+
+  return (
+    <div className="space-y-3">
+      <div className="rounded-lg border border-zinc-200 bg-white p-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <div className="inline-flex rounded-md bg-zinc-100 p-1">
+            {(["120V", "240V"] as const).map((v) => (
+              <button
+                key={v}
+                type="button"
+                onClick={() => {
+                  setVoltage(v);
+                  if (v === "120V" && amps > 140) setAmps(140);
+                }}
+                className={`h-7 rounded px-2.5 text-xs font-semibold ${voltage === v ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-500"}`}
+              >
+                {v} input
+              </button>
+            ))}
+          </div>
+          <div className="flex h-8 min-w-16 items-center justify-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white">
+            {amps}A
+          </div>
+        </div>
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={5}
+          value={amps}
+          onChange={(event) => setAmps(Number(event.target.value))}
+          className="w-full accent-torch"
+        />
+        <div className="mt-2 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+          <span>{min}A</span>
+          <span>{max}A</span>
+        </div>
+        <div className="mt-2 rounded-md bg-orange-50 px-3 py-2 text-sm leading-6 text-orange-900">
+          At <strong>{duty.amperage}</strong> on <strong>{duty.input}</strong>: weld{" "}
+          <strong>{duty.weldMinutes} min</strong>, rest <strong>{duty.restMinutes} min</strong>{" "}
+          (<strong>{duty.dutyCycle}</strong> duty cycle).
+        </div>
+      </div>
+      <DutyCycleCard
+        rows={rows}
+        highlightKey={`${duty.input}-${duty.amperage}`}
+        highlightLabel={`${duty.weldMinutes} min weld / ${duty.restMinutes} min rest`}
+      />
     </div>
   );
 }

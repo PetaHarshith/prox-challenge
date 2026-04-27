@@ -87,6 +87,11 @@ export default function Home() {
     [turns]
   );
 
+  const latestUserQuestion = useMemo(
+    () => [...turns].reverse().find((turn) => turn.role === "user")?.content,
+    [turns]
+  );
+
   async function submitPrompt(prompt: string) {
     if (!prompt.trim() || isLoading) return;
 
@@ -348,7 +353,7 @@ export default function Home() {
           </form>
         </section>
 
-        <VisualWorkspace response={latestResponse} />
+        <VisualWorkspace response={latestResponse} userQuestion={latestUserQuestion} />
       </div>
     </main>
   );
