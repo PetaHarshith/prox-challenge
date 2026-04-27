@@ -241,10 +241,22 @@ export default function Home() {
                     {turn.imagePreview ? (
                       <Image src={turn.imagePreview} alt="Uploaded question context" width={360} height={240} className="mt-3 rounded-md border border-white/20" />
                     ) : null}
+                    {turn.response?.highlights?.warning ? (
+                      <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                        <span aria-hidden>⚠</span>
+                        <span>{turn.response.highlights.warning}</span>
+                      </div>
+                    ) : null}
                     {turn.response?.refs?.length ? (
                       <div className="mt-3">
                         <SourceChips refs={turn.response.refs} />
                       </div>
+                    ) : null}
+                    {turn.response?.reasoning_summary ? (
+                      <details className="mt-3 text-xs text-zinc-600">
+                        <summary className="cursor-pointer select-none font-semibold text-zinc-700 hover:text-zinc-900">Why this answer</summary>
+                        <p className="mt-1.5 leading-5">{turn.response.reasoning_summary}</p>
+                      </details>
                     ) : null}
                     {turn.response?.warning ? <p className="mt-3 text-xs text-amber-700">{turn.response.warning}</p> : null}
                   </div>

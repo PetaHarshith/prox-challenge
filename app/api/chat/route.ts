@@ -15,15 +15,16 @@ import {
 
 export const runtime = "nodejs";
 
-// Strict system prompt: every response must answer the user's exact question
-// without falling back to multi-process comparisons.
+// System prompt: keep tight so Claude stays within the JSON budget and answers
+// the specific question instead of asking for clarification or padding output.
 const systemPrompt = [
   "You are a welding assistant for the Vulcan OmniPro 220.",
-  "Answer ONLY the user's exact question. Do not give general comparisons unless asked.",
-  "Be specific, practical, and correct.",
-  "If the user asks about TIG, answer about TIG only. If they ask about flux-core, answer about flux-core only.",
-  "Never list all four processes (MIG, flux-core, TIG, stick) unless the user explicitly asked to choose or compare.",
-  "Only mention an uploaded image if the user explicitly attached one or referenced it in this turn."
+  "Answer ONLY the user's exact question. Be specific, practical, and correct.",
+  "If the user asks about TIG, answer TIG only. If they ask flux-core, answer flux-core only.",
+  "Never enumerate all four processes (MIG, flux-core, TIG, stick) unless the user explicitly asked to choose or compare.",
+  "If the user describes a wrong setup, call it out and show the corrected setup.",
+  "Only ask a clarifying question when the question is truly ambiguous (e.g., no process and no context). Otherwise answer directly.",
+  "Only mention an uploaded image if the user attached one this turn."
 ].join("\n");
 
 // Detects the generic "Use MIG / TIG / flux-core" comparison block when the
@@ -64,7 +65,9 @@ type ChatRequest = {
 
 const responseJsonInstruction = `Return only compact JSON with this shape:
 {
-  "answer": "Detailed step-by-step guidance in plain language, formatted with **bold** for important terms, numbered steps, tips, and next steps",
+  "answer": "Clear, practical explanation. **Bold** important terms. Numbered steps (max 3 unless a full procedure is asked). Optional Tip / Next.",
+  "reasoning_summary": "Optional. 1 short sentence on WHY this answer is correct (which chart/diagram/section drove the decision).",
+  "highlights": {"process":"optional", "key_setting":"optional (e.g. '200A @ 240V → 25%')", "warning":"optional safety/contradiction warning"},
   "visualType": "polarity" | "duty-cycle" | "troubleshooting" | "manual-image" | "settings" | "process-selection" | "image-diagnosis" | "text",
   "process": "mig" | "flux-core" | "tig" | "stick" | "unknown",
   "refs": [{"title":"...", "source":"Owner's Manual" | "Quick Start Guide" | "Selection Chart", "page":"optional", "url":"..."}],
@@ -75,7 +78,13 @@ const responseJsonInstruction = `Return only compact JSON with this shape:
   "imageDiagnosis": {"category":"weld_bead_defect|wiring_setup|front_panel|wire_feed|unknown","likelyIssue":"...","visualClues":["..."],"checks":["..."],"fixes":["..."],"confidence":"low|medium|high","caution":"optional"},
   "troubleshootingItems": [{"cause":"...", "check":"...", "fix":"..."}],
   "highlightContext": {"type":"duty-cycle|polarity|troubleshooting", "highlightKey":"optional", "highlightLabel":"optional", "emphasis":"optional"}
-}`;
+}
+
+Rules:
+- "answer" is REQUIRED and must be a complete, specific answer to the user's question.
+- "reasoning_summary" and "highlights" are optional — include only when they add value (warning chip on contradictions, key_setting on duty cycle, etc.).
+- For troubleshooting questions, fill "troubleshootingItems" with cause→check→fix triples.
+- For duty cycle, fill "highlightContext.highlightKey" as "<voltage>-<amperage>" and "highlightLabel" as "<weld> min weld / <rest> min rest".`;
 
 function latestUserMessage(messages: ChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === "user")?.content.trim() ?? "";
@@ -239,7 +248,7 @@ export async function POST(request: Request) {
         : content;
       return client.messages.create({
         model,
-        max_tokens: 1200,
+        max_tokens: 2000,
         temperature: 0.2,
         system: systemPrompt,
         messages: [{ role: "user", content: finalContent }]

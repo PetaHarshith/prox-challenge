@@ -72,13 +72,13 @@ export function extractSlots(message: string): PlannerSlots {
 // choose/compare phrasing or "X vs Y".
 
 const SETUP_RE =
-  /\b(connect|connects|connected|connection|connecting|socket|polarity|ground|torch|electrode|hook ?up|cable|plug)\b/;
+  /\b(connect|connects|connected|connection|connecting|socket|sockets|polarity|ground|torch|electrode|hook ?up|cable|cables|plug|wire feed|setup|set ?up|setting up|where (do|does|should) .* (go|plug|connect))\b/;
 
 const DUTY_RE =
   /\bduty\b|\bweld continuously\b|\bcontinuously at\b|\boverheat(?:ing)?\b|\bthermal shutdown\b|\b\d{2,3}\s*a(?:mp(?:s|erage)?)?\b/;
 
 const TROUBLE_RE =
-  /\bporosity\b|\bspatter\b|\bproblem\b|\bwrong\b|\bbird.?nest\b|\bburn[- ]through\b|\bdefect\b|\bunstable arc\b/;
+  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bproblem\b|\bwrong\b|\bbird.?nest\b|\bburn[- ]through\b|\bdefect\b|\bunstable arc\b|\bcraters?\b|\bholes? in\b|\bweld(?:s)? (?:has|have|look|looks)\b/;
 
 const PROCESS_SELECTION_RE =
   /\bchoose\b|\bwhich process\b|\bwhat process\b|\bcompare\b|\bbest process\b|\bshould i use\b|\bdifference between\b|\b(mig|tig|flux(?:-?core)?|stick)\s+(vs\.?|versus)\s+(mig|tig|flux(?:-?core)?|stick)\b|\bdon'?t have gas\b/;

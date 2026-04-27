@@ -377,7 +377,7 @@ export function classifyQuestion(input: string): VisualType {
   }
   if (/\bchoose between\b|\bwhich process\b|\bwhat process\b|\bcompare\b|\bbest process\b|\bshould i use\b|\bdifference between\b|\b(mig|tig|flux(?:-?core)?|stick)\s*(vs\.?|versus)\s*(mig|tig|flux(?:-?core)?|stick)\b|don'?t have gas|\bno gas\b/.test(text)) return "process-selection";
   if (/\bload(ing)?\b.*\b(wire|spool)\b|\bwire spool\b|feed guides|drive roller|\bwire tension\b/.test(text)) return "manual-image";
-  if (/troubleshoot|porosity|spatter|bird.?nest|bad weld|not feeding|burn[- ]through|defect|unstable arc/.test(text)) {
+  if (/troubleshoot|porosity|porous|pinholes?|spatter|bird.?nest|bad weld|not feeding|burn[- ]through|defect|unstable arc|craters?|holes? in|weld(?:s)? (?:has|have|look|looks)/.test(text)) {
     return "troubleshooting";
   }
   if (/\bsettings?\b|\brecommend\b|wire speed|\bvoltage setting\b|\bthickness\b|\bmaterial\b|1\/8|one eighth|mild steel|selection chart|\b\d+\s*(mm|gauge|ga)\b/.test(text)) {

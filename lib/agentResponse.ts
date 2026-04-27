@@ -103,6 +103,13 @@ export const AgentResponseSchema = z.object({
     highlightKey: z.string().optional(), // e.g., "200A-240V" for duty cycle
     highlightLabel: z.string().optional(), // e.g., "2.5 min weld / 7.5 min rest"
     emphasis: z.string().optional() // Key phrase to emphasize in answer
+  }).optional(),
+  // Optional reasoning + highlights surfaced in the chat UI.
+  reasoning_summary: z.string().optional(),
+  highlights: z.object({
+    process: z.string().optional(),
+    key_setting: z.string().optional(),
+    warning: z.string().optional()
   }).optional()
 });
 
