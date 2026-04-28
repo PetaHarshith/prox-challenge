@@ -73,7 +73,7 @@ export function extractSlots(message: string): PlannerSlots {
 // choose/compare phrasing or "X vs Y".
 
 const SETUP_RE =
-  /\b(connect|connects|connected|connection|connecting|socket|sockets|polarity|ground|torch|electrode|hook ?up|cable|cables|plug|wire feed|setup|set ?up|setting up|where (do|does|should) .* (go|plug|connect))\b/;
+  /\b(connect|connects|connected|connection|connecting|socket|sockets|polarity|ground|torch|electrode|hook ?up|cable|cables|plug|wire feed|setups?|set ?ups?|setting up|where (do|does|should) .* (go|plug|connect))\b/;
 
 const DUTY_RE =
   /\bduty\b|\bweld continuously\b|\bcontinuously at\b|\boverheat(?:ing)?\b|\bthermal shutdown\b|\b\d{2,3}\s*a(?:mp(?:s|erage)?)?\b/;
@@ -173,6 +173,7 @@ export function planOutput({
   const lower = message.toLowerCase();
   const slots = extractSlots(message);
   const process = slots.process;
+  const mentionedProcesses = extractMentionedProcesses(message);
 
   // 1. Uploaded image -> image_diagnosis (highest priority)
   if (hasUploadedImage) {
@@ -234,8 +235,9 @@ export function planOutput({
   //    questions, so we let the troubleshooting branch below own them.
   const troubleTakesPrecedence = /\btroubleshoot(?:ing)?\b/.test(lower) || SPECIFIC_DEFECT_RE.test(lower);
   if (SETUP_RE.test(lower) && !troubleTakesPrecedence) {
-    const needsClarification = process === "unknown" && !conversationState?.pending;
-    const setupVisualId = process !== "unknown" ? `${process}-setup-diagram` : undefined;
+    const isMultiProcessSetup = mentionedProcesses.length >= 2;
+    const needsClarification = process === "unknown" && !isMultiProcessSetup && !conversationState?.pending;
+    const setupVisualId = process !== "unknown" && !isMultiProcessSetup ? `${process}-setup-diagram` : undefined;
     return {
       intent: "setup",
       process,
@@ -255,6 +257,23 @@ export function planOutput({
           "Once I have that, I\u2019ll give you the exact cable diagram and steps."
         ].join("\n")
         : undefined
+    };
+  }
+
+  // Multi-process explain/describe questions without explicit setup words:
+  // "explain flux-core and MIG", "talk about all four processes". These
+  // should still render setup diagrams, a comparison table, and pre-weld
+  // checklists because the useful answer is visual/comparative.
+  if (mentionedProcesses.length >= 2 && !troubleTakesPrecedence) {
+    return {
+      intent: "setup",
+      process,
+      slots,
+      requiredFacts: ["Brief process descriptions", "Per-process setup comparison", "Pre-weld checks"],
+      visualType: "setup_diagram",
+      visualId: undefined,
+      needsClaudeVision: false,
+      needsClarification: false
     };
   }
 
@@ -348,9 +367,10 @@ const SETTINGS_RE = /\b(setting|settings|recommend|wire speed|voltage setting|th
 
 // "All four setups", "every process", "show me all of them" — collective
 // phrasing that should expand to every welding process the welder supports.
-// Used by `extractMentionedProcesses` so the user does not have to enumerate.
+// Accept both "setup" and "set up" spellings because users often write
+// "all the four set ups" while standing in front of the machine.
 const ALL_PROCESSES_RE =
-  /\ball (?:four|4|the )?(?:setups?|processes?|modes?)\b|\bevery (?:process|setup|mode)\b|\b(?:all|each) of (?:them|the (?:four|4 )?(?:processes|setups))\b|\bfour processes\b|\bfour setups\b/;
+  /\ball (?:the )?(?:four|4)?\s*(?:welding\s*)?(?:setups?|set\s*ups?|processes?|modes?)\b|\bevery (?:welding\s*)?(?:process|setup|set\s*up|mode)\b|\b(?:all|each) of (?:them|the (?:four|4 )?(?:processes|setups?|set\s*ups?))\b|\bfour (?:welding\s*)?(?:processes|setups?|set\s*ups?)\b/;
 
 const ALL_PROCESSES: Array<Exclude<WeldProcess, "unknown">> = ["mig", "flux-core", "tig", "stick"];
 
@@ -365,7 +385,7 @@ export function extractMentionedProcesses(message: string): Array<Exclude<WeldPr
   const patterns: Array<[Exclude<WeldProcess, "unknown">, RegExp]> = [
     ["flux-core", /\bflux[\s-]?core(?:d)?\b|\bfcaw\b|\bgasless\b/g],
     ["mig", /\bmig\b|\bgmaw\b|\bsolid[\s-]?core\b/g],
-    ["tig", /\btig\b|\bgtaw\b/g],
+    ["tig", /\btig\b|\btiug\b|\bgtaw\b/g],
     ["stick", /\bstick\b|\bsmaw\b/g]
   ];
   const hits: Array<{ process: Exclude<WeldProcess, "unknown">; index: number }> = [];
@@ -456,4 +476,3 @@ export function planVisuals(message: string, hasUploadedImage: boolean): Planner
   // Empty -> no visual (chat-only answer).
   return visuals;
 }
-

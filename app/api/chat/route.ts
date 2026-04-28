@@ -294,6 +294,77 @@ function buildVisualsFromPlan(
   return out;
 }
 
+// Answer-driven setup attachment. When Claude's prose describes how to wire
+// the welder (ground clamp into +, wire feed cable into −, DCEP/DCEN, etc.)
+// but the planner did not classify the question as setup, attach the
+// matching setup diagram + manual image so the workspace mirrors the answer.
+const WIRING_PART_RE =
+  /\b(ground clamp|work lead|electrode holder|wire feed cable|wire-feed cable|torch cable|tig torch|mig gun|stinger)\b/i;
+// Note: the parenthesized variants ("positive (+)", "negative (−)") cannot
+// use a trailing \b — `)` and the following punctuation are both non-word so
+// no word boundary exists. They get their own branch without a trailing \b.
+const POLARITY_TARGET_RE =
+  /\b(?:dcep|dcen)\b|\b(?:positive|negative)\s+(?:socket|terminal)\b|\b(?:positive|negative)\s*\([\+\-\u2212]\)|\binto\s+(?:the\s+)?(?:positive|negative)\b/i;
+
+function answerDescribesWiring(text: string | undefined): boolean {
+  if (!text) return false;
+  if (/\bdcep\b|\bdcen\b/i.test(text)) return true;
+  return WIRING_PART_RE.test(text) && POLARITY_TARGET_RE.test(text);
+}
+
+function attachAnswerDrivenSetupVisuals(
+  visuals: VisualSpec[],
+  response: AgentResponse,
+  question: string,
+  intent: PlannerIntent
+): VisualSpec[] {
+  // Explanation / consequence questions stay visual-less even if the prose
+  // names the correct wiring (e.g. "what happens if polarity is reversed in
+  // TIG" — the answer mentions DCEN but the user asked a conceptual question).
+  if (intent === "explanation") return visuals;
+  // Image-diagnosis and manual-image flows already own the workspace.
+  if (intent === "weld_image_diagnosis" || intent === "manual_image_question") return visuals;
+  if (visuals.some((v) => v.kind === "setup_diagram")) return visuals;
+  if (!answerDescribesWiring(response.answer)) return visuals;
+
+  const fromQuestion = extractMentionedProcesses(question);
+  const fromAnswer = extractMentionedProcesses(response.answer ?? "");
+  const merged: Array<Exclude<WeldProcess, "unknown">> = [];
+  for (const p of [...fromQuestion, ...fromAnswer]) {
+    if (!merged.includes(p)) merged.push(p);
+  }
+  if (!merged.length) {
+    if (response.process !== "unknown") merged.push(response.process);
+    else merged.push("flux-core");
+  }
+
+  const out = [...visuals];
+  const seen = new Set<string>();
+  for (const v of out) {
+    if (v.kind === "setup_diagram") seen.add(`setup_diagram:${v.process}`);
+    else if (v.kind === "manual_image") seen.add(`manual_image:${v.image.src}`);
+  }
+  for (const proc of merged) {
+    const setupKey = `setup_diagram:${proc}`;
+    if (seen.has(setupKey)) continue;
+    seen.add(setupKey);
+    out.push({ kind: "setup_diagram", process: proc });
+    const wiring = manualImages[processManualImageIndex[proc]];
+    if (wiring) {
+      const imgKey = `manual_image:${wiring.src}`;
+      if (!seen.has(imgKey)) {
+        seen.add(imgKey);
+        out.push({
+          kind: "manual_image",
+          image: wiring,
+          interpretation: getImageInterpretation(wiring.src, question)
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // Garage Setup Tools: append a pre-weld checklist (only when the planner is
 // confident about the process and the intent is setup-related) and a warnings
 // card (only when the deterministic detector finds something). Both are
@@ -306,13 +377,6 @@ function augmentVisualsWithGarageTools(
 ): VisualSpec[] {
   const out = [...visuals];
   const hasChecklist = out.some((v) => v.kind === "pre_weld_checklist");
-  // Pre-weld checklists are pre-build steps (cables, polarity, gas, wire).
-  // They are meaningless for troubleshooting / weld-image diagnosis questions
-  // ("porosity on flux-core", "my MIG bead looks bad"), so the entire
-  // checklist branch — single AND multi-process fan-out — is gated to
-  // setup-like intents only.
-  const setupLikeIntent: PlannerIntent[] = ["setup", "polarity", "settings_recommendation"];
-  const checklistAllowed = setupLikeIntent.includes(intent);
   // Multi-setup: when the planner emitted setup_diagrams for 2+ processes
   // (multi-process explain/compare), emit one pre_weld_checklist per process
   // so the chat-bubble pager can flip between them.
@@ -322,6 +386,12 @@ function augmentVisualsWithGarageTools(
       setupProcesses.push(v.process);
     }
   }
+  // Pre-weld checklists are pre-build steps (cables, polarity, gas, wire).
+  // They are meaningless for troubleshooting / weld-image diagnosis questions,
+  // but multi-process explanation questions still need them because the user is
+  // asking to understand setup choices side-by-side.
+  const setupLikeIntent: PlannerIntent[] = ["setup", "polarity", "settings_recommendation"];
+  const checklistAllowed = setupLikeIntent.includes(intent) || setupProcesses.length >= 2;
   if (checklistAllowed && !hasChecklist && setupProcesses.length >= 2) {
     const lastSetupIndex = out.map((v) => v.kind).lastIndexOf("setup_diagram");
     const insertAt = lastSetupIndex >= 0 ? lastSetupIndex + 1 : out.length;
@@ -340,6 +410,15 @@ function augmentVisualsWithGarageTools(
     out.unshift({ kind: "warnings", warnings });
   }
   return out;
+}
+
+function setupRefsFromVisuals(visuals: VisualSpec[]): ManualRef[] {
+  const refs: ManualRef[] = [];
+  for (const v of visuals) {
+    if (v.kind === "setup_diagram") refs.push(...polaritySetups[v.process].refs);
+    if (v.kind === "manual_image") refs.push(...v.image.refs);
+  }
+  return dedupeRefs(refs);
 }
 
 type ChatMessage = {
@@ -556,6 +635,16 @@ function buildPreviewResponse(
   };
 }
 
+function nextStateForResponse(
+  question: string,
+  response: AgentResponse,
+  previousState: ConversationState | undefined,
+  resolved: Parameters<typeof nextConversationState>[3]
+): ConversationState {
+  if (extractMentionedProcesses(question).length >= 2) return {};
+  return nextConversationState(question, response, previousState, resolved);
+}
+
 export async function POST(request: Request) {
   const body = (await request.json()) as ChatRequest;
   const rawQuestion = latestUserMessage(body.messages);
@@ -675,7 +764,7 @@ async function runChatPipeline(
       visuals: [],
       outputPlan
     };
-    const conversationState = nextConversationState(question, clarification, body.conversationState, resolved);
+    const conversationState = nextStateForResponse(question, clarification, body.conversationState, resolved);
     console.log("[chat] clarification short-circuit for intent:", outputPlan.intent);
     sink.write({
       type: "complete",
@@ -712,7 +801,7 @@ async function runChatPipeline(
       manualImages: linkedManual ? [linkedManual] : [],
       outputPlan
     };
-    const conversationState = nextConversationState(question, response, body.conversationState, resolved);
+    const conversationState = nextStateForResponse(question, response, body.conversationState, resolved);
     sink.write({ type: "answer_delta", delta: answer });
     sink.write({ type: "answer_done" });
     sink.write({
@@ -729,7 +818,7 @@ async function runChatPipeline(
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
-    const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
+    const conversationState = nextStateForResponse(question, fallback, body.conversationState, resolved);
     const localImage = indexedVisual
       ? manualImages.find((image) => image.src === indexedVisual.imagePath)
       : undefined;
@@ -741,7 +830,13 @@ async function runChatPipeline(
       localResponse.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
     }
     const localPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
-    const localBaseVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
+    const localPlanVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
+    const localBaseVisuals = attachAnswerDrivenSetupVisuals(
+      localPlanVisuals,
+      localResponse,
+      question,
+      outputPlan.intent
+    );
     const localWarnings = detectSmartWarnings(question, localResponse.process);
     const localVisuals = augmentVisualsWithGarageTools(
       localBaseVisuals,
@@ -978,7 +1073,13 @@ async function runChatPipeline(
     // Always rebuild the visuals[] from the live plan so the workspace cannot
     // carry a stale visual from a prior turn.
     const plannedVisuals = planVisuals(question, Boolean(body.image?.data));
-    const baseVisuals = buildVisualsFromPlan(plannedVisuals, response, question);
+    const planBuiltVisuals = buildVisualsFromPlan(plannedVisuals, response, question);
+    const baseVisuals = attachAnswerDrivenSetupVisuals(
+      planBuiltVisuals,
+      response,
+      question,
+      outputPlan.intent
+    );
     const warnings = detectSmartWarnings(question, response.process);
     response.visuals = augmentVisualsWithGarageTools(
       baseVisuals,
@@ -986,10 +1087,13 @@ async function runChatPipeline(
       response.process,
       warnings
     );
+    if (response.visuals.some((v) => v.kind === "setup_diagram")) {
+      response.refs = dedupeRefs([...response.refs, ...setupRefsFromVisuals(response.visuals)]);
+    }
     if (warnings.length && !response.highlights?.warning) {
       response.highlights = { ...(response.highlights ?? {}), warning: warnings[0].text };
     }
-    const conversationState = nextConversationState(question, response, body.conversationState, resolved);
+    const conversationState = nextStateForResponse(question, response, body.conversationState, resolved);
 
     sink.write({
       type: "complete",
@@ -1004,7 +1108,13 @@ async function runChatPipeline(
   } catch (error) {
     console.error(error);
     const fallbackPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
-    const fallbackBaseVisuals = buildVisualsFromPlan(fallbackPlannedVisuals, fallback, question);
+    const fallbackPlanVisuals = buildVisualsFromPlan(fallbackPlannedVisuals, fallback, question);
+    const fallbackBaseVisuals = attachAnswerDrivenSetupVisuals(
+      fallbackPlanVisuals,
+      fallback,
+      question,
+      outputPlan.intent
+    );
     const fallbackWarnings = detectSmartWarnings(question, fallback.process);
     const fallbackVisuals = augmentVisualsWithGarageTools(
       fallbackBaseVisuals,
@@ -1015,7 +1125,7 @@ async function runChatPipeline(
     if (outputPlan.intent === "troubleshooting" && !fallback.troubleshootingItems?.length) {
       fallback.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
     }
-    const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
+    const conversationState = nextStateForResponse(question, fallback, body.conversationState, resolved);
     sink.write({
       type: "complete",
       response: {
