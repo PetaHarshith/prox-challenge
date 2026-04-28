@@ -329,13 +329,22 @@ function attachAnswerDrivenSetupVisuals(
 
   const fromQuestion = extractMentionedProcesses(question);
   const fromAnswer = extractMentionedProcesses(response.answer ?? "");
+  // Only fan out to multiple processes when the QUESTION itself named 2+
+  // processes (a genuine compare/explain-all). Otherwise restrict to a single
+  // primary process so Claude's "use X, not Y" prose mentions don't inflate
+  // a single-process recommendation into a comparison table + per-process
+  // checklists in the chat bubble.
   const merged: Array<Exclude<WeldProcess, "unknown">> = [];
-  for (const p of [...fromQuestion, ...fromAnswer]) {
-    if (!merged.includes(p)) merged.push(p);
-  }
-  if (!merged.length) {
-    if (response.process !== "unknown") merged.push(response.process);
-    else merged.push("flux-core");
+  if (fromQuestion.length >= 2) {
+    for (const p of [...fromQuestion, ...fromAnswer]) {
+      if (!merged.includes(p)) merged.push(p);
+    }
+  } else if (response.process !== "unknown") {
+    merged.push(response.process);
+  } else if (fromAnswer.length > 0) {
+    merged.push(fromAnswer[0]);
+  } else {
+    merged.push("flux-core");
   }
 
   const out = [...visuals];
