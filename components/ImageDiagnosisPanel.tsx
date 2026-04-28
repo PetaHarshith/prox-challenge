@@ -26,7 +26,7 @@ export function ImageDiagnosisPanel({
       </div>
 
       <div className="rounded-xl border border-black/[0.08] bg-card-soft p-3 text-sm">
-        <p className="font-semibold text-text-primary">Likely issue: {diagnosis.likelyIssue}</p>
+        <p className="font-semibold text-text-primary">Likely issue: {stripInlineMarkdown(diagnosis.likelyIssue)}</p>
         <p className="mt-1 text-xs text-text-secondary">Confidence: {diagnosis.confidence}</p>
       </div>
 
@@ -37,7 +37,7 @@ export function ImageDiagnosisPanel({
             {diagnosis.visualClues.map((item) => (
               <li key={item} className="flex items-start gap-2">
                 <CheckCircle2 size={14} className="mt-1 shrink-0 text-emerald-600" />
-                <span>{item}</span>
+                <span>{stripInlineMarkdown(item)}</span>
               </li>
             ))}
           </ul>
@@ -48,7 +48,7 @@ export function ImageDiagnosisPanel({
             {diagnosis.checks.map((item) => (
               <li key={item} className="flex items-start gap-2">
                 <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-acid" />
-                <span>{item}</span>
+                <span>{stripInlineMarkdown(item)}</span>
               </li>
             ))}
           </ul>
@@ -59,7 +59,7 @@ export function ImageDiagnosisPanel({
         <p className="mb-1 text-xs font-semibold uppercase text-text-secondary">Fixes</p>
         <ul className="space-y-1 text-sm text-text-secondary">
           {diagnosis.fixes.map((item) => (
-            <li key={item}>- {item}</li>
+            <li key={item}>- {stripInlineMarkdown(item)}</li>
           ))}
         </ul>
       </div>

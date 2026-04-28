@@ -1,5 +1,6 @@
 import { AlertTriangle, Info } from "lucide-react";
 import type { SmartWarning } from "@/lib/smartWarnings";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 export function WarningCard({ warnings }: { warnings: SmartWarning[] }) {
   if (!warnings.length) return null;
@@ -17,7 +18,7 @@ export function WarningCard({ warnings }: { warnings: SmartWarning[] }) {
             ) : (
               <Info size={16} className="mt-0.5 shrink-0 text-sky-300" />
             )}
-            <span>{w.text}</span>
+            <span>{stripInlineMarkdown(w.text)}</span>
           </div>
         );
       })}

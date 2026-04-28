@@ -3,6 +3,7 @@
 import { AlertTriangle, CheckCircle2, Info, ShieldAlert, Zap } from "lucide-react";
 import type { FaultCode, FaultSeverity } from "@/lib/faultCodes";
 import { SourceChips } from "@/components/SourceChips";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 const severityStyle: Record<FaultSeverity, { chip: string; ring: string; icon: React.ReactNode }> = {
   info: {
@@ -38,16 +39,16 @@ export function FaultCodeCard({ fault }: { fault: FaultCode }) {
 
       <p className="text-xs text-text-secondary">
         <span className="font-semibold text-text-primary">Where you see it: </span>
-        {fault.indicator}
+        {stripInlineMarkdown(fault.indicator)}
       </p>
 
-      <p className="mt-3 text-sm text-text-primary">{fault.whatYoureSeeing}</p>
+      <p className="mt-3 text-sm text-text-primary">{stripInlineMarkdown(fault.whatYoureSeeing)}</p>
 
       <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-600/20 bg-emerald-50/60 p-2.5">
         <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-emerald-700" />
         <p className="text-xs text-emerald-900">
           <span className="font-semibold">Is it safe? </span>
-          {fault.isSafe}
+          {stripInlineMarkdown(fault.isSafe)}
         </p>
       </div>
 
@@ -61,7 +62,7 @@ export function FaultCodeCard({ fault }: { fault: FaultCode }) {
             {fault.causes.map((cause) => (
               <li key={cause} className="flex items-start gap-2">
                 <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-text-secondary/60" />
-                <span>{cause}</span>
+                <span>{stripInlineMarkdown(cause)}</span>
               </li>
             ))}
           </ul>
@@ -77,7 +78,7 @@ export function FaultCodeCard({ fault }: { fault: FaultCode }) {
                 <span className="mt-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-brass text-[10px] font-bold text-[#171A1F]">
                   {i + 1}
                 </span>
-                <span>{step}</span>
+                <span>{stripInlineMarkdown(step)}</span>
               </li>
             ))}
           </ol>

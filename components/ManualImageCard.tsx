@@ -1,6 +1,7 @@
 import Image from "next/image";
 import type { ManualImage } from "@/lib/manualKnowledge";
 import type { ImageInterpretation } from "@/lib/agentResponse";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 export function ManualImageCard({ image, interpretation }: { image: ManualImage; interpretation?: ImageInterpretation }) {
   const isPdf = image.src.endsWith(".pdf");
@@ -16,15 +17,15 @@ export function ManualImageCard({ image, interpretation }: { image: ManualImage;
         <div className="space-y-2 rounded-xl border border-brass/25 bg-brass/10 p-3 text-xs leading-5 text-text-primary">
           <div>
             <span className="font-bold uppercase tracking-wide text-brass">What it shows</span>
-            <p className="mt-0.5">{interpretation.whatItShows}</p>
+            <p className="mt-0.5">{stripInlineMarkdown(interpretation.whatItShows)}</p>
           </div>
           <div>
             <span className="font-bold uppercase tracking-wide text-brass">Why it matters</span>
-            <p className="mt-0.5">{interpretation.whyItMatters}</p>
+            <p className="mt-0.5">{stripInlineMarkdown(interpretation.whyItMatters)}</p>
           </div>
           <div>
             <span className="font-bold uppercase tracking-wide text-brass">What to check</span>
-            <p className="mt-0.5">{interpretation.whatToCheck}</p>
+            <p className="mt-0.5">{stripInlineMarkdown(interpretation.whatToCheck)}</p>
           </div>
         </div>
       ) : null}
@@ -45,7 +46,7 @@ export function ManualImageCard({ image, interpretation }: { image: ManualImage;
           <ul className="mt-2 space-y-1">
             {image.guide.secondaryNotes.map((note, idx) => (
               <li key={idx} className="text-xs leading-5 text-text-secondary">
-                • {note}
+                • {stripInlineMarkdown(note)}
               </li>
             ))}
           </ul>

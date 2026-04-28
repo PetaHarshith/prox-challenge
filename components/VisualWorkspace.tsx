@@ -12,6 +12,7 @@ import { SettingsRecommendationCard } from "@/components/SettingsRecommendationC
 import { WarningCard } from "@/components/WarningCard";
 import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import { dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 type WorkspaceResponse = AgentResponse & { warning?: string; usedModel?: string };
 type WorkspaceTab = "answer" | "setup" | "duty" | "settings";
@@ -98,7 +99,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
                   <WorkspaceSection title="Setup Diagram" refs={response.refs}>
                     {response.highlightContext?.emphasis ? (
                       <div className="rounded-lg border border-black/[0.08] bg-card-soft px-3 py-2 text-xs font-medium text-text-primary">
-                        {response.highlightContext.emphasis}
+                        {stripInlineMarkdown(response.highlightContext.emphasis)}
                       </div>
                     ) : null}
                     <CustomSetupDiagram process={response.process} />

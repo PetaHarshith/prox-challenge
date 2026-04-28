@@ -1,3 +1,5 @@
+import { stripInlineMarkdown } from "@/lib/textFormat";
+
 type CalloutDirection = "top" | "bottom" | "left" | "right";
 
 type ImageCalloutProps = {
@@ -63,7 +65,7 @@ export function ImageCallout({ text, position, direction, delayMs = 0, targetPos
                                 overflow: "hidden"
                             }}
                         >
-                            {text}
+                            {stripInlineMarkdown(text)}
                         </p>
                     </div>
                     <ArrowPointer direction={direction} arrowStyles={arrowStyles} />

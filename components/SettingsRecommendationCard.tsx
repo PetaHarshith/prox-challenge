@@ -27,7 +27,7 @@ export function SettingsRecommendationCard({ recommendation }: { recommendation:
           <div className="font-semibold text-text-primary">{recommendation.inputVoltage}</div>
         </div>
       </div>
-      <p className="mt-3 text-sm leading-6 text-text-secondary">{recommendation.summary}</p>
+      <p className="mt-3 text-sm leading-6 text-text-secondary">{stripInlineMarkdown(recommendation.summary)}</p>
       {recommendation.exactMatch === false ? (
         <div className="mt-3 rounded-xl border border-acid/25 bg-acid/10 p-3 text-sm text-text-primary">
           The manual does not give an exact setting for this full combination. Use this as the closest grounded starting point.
@@ -40,7 +40,7 @@ export function SettingsRecommendationCard({ recommendation }: { recommendation:
             <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-acid text-xs font-bold text-black">
               {index + 1}
             </span>
-            <span>{step}</span>
+            <span>{stripInlineMarkdown(step)}</span>
           </li>
         ))}
       </ol>

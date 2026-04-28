@@ -5,6 +5,7 @@ import { Check, ChevronDown, ListChecks } from "lucide-react";
 import type { ChecklistItem } from "@/lib/quickSetup";
 import { preWeldChecklists } from "@/lib/quickSetup";
 import type { WeldProcess } from "@/lib/manualKnowledge";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 type Props = {
   process: Exclude<WeldProcess, "unknown">;
@@ -75,7 +76,7 @@ export function PreWeldChecklist({ process, items, title }: Props) {
                     onClick={() => toggle(index)}
                     className={`block w-full text-left text-sm leading-5 ${isChecked ? "text-text-secondary line-through" : "text-text-primary"}`}
                   >
-                    {item.text}
+                    {stripInlineMarkdown(item.text)}
                   </button>
                   <button
                     type="button"
@@ -88,7 +89,7 @@ export function PreWeldChecklist({ process, items, title }: Props) {
                   </button>
                   {isHintOpen ? (
                     <p className="mt-1.5 rounded-xl bg-card-soft px-2.5 py-1.5 text-xs leading-5 text-text-secondary ring-1 ring-black/[0.08]">
-                      {item.hint}
+                      {stripInlineMarkdown(item.hint)}
                     </p>
                   ) : null}
                 </div>

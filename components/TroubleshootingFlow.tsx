@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { AlertTriangle, Check, CheckCircle2, ChevronDown, X } from "lucide-react";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 export type TroubleshootingItem = { cause: string; check: string; fix: string };
 type StepState = "pending" | "fixed" | "skipped";
@@ -14,10 +15,19 @@ type TroubleshootingFlowProps = {
 
 export function TroubleshootingFlow({ steps, items, symptom }: TroubleshootingFlowProps) {
   const nodes = useMemo<TroubleshootingItem[]>(() => {
-    if (items?.length) return items;
-    if (steps?.length) return steps.map((step) => ({ cause: step, check: step, fix: step }));
-    return [];
+    const raw = items?.length
+      ? items
+      : steps?.length
+        ? steps.map((step) => ({ cause: step, check: step, fix: step }))
+        : [];
+    return raw.map((it) => ({
+      cause: stripInlineMarkdown(it.cause),
+      check: stripInlineMarkdown(it.check),
+      fix: stripInlineMarkdown(it.fix)
+    }));
   }, [items, steps]);
+
+  const cleanSymptom = symptom ? stripInlineMarkdown(symptom) : undefined;
 
   const [states, setStates] = useState<StepState[]>(() => nodes.map(() => "pending"));
   const [openIdx, setOpenIdx] = useState<number>(0);
@@ -44,7 +54,7 @@ export function TroubleshootingFlow({ steps, items, symptom }: TroubleshootingFl
         <AlertTriangle size={16} className="shrink-0 text-acid" />
         <div className="min-w-0">
           <div className="text-[10px] font-semibold uppercase tracking-wide text-acid">Symptom</div>
-          <div className="truncate text-sm font-semibold text-text-primary">{symptom ?? "Weld defect reported"}</div>
+          <div className="truncate text-sm font-semibold text-text-primary">{cleanSymptom ?? "Weld defect reported"}</div>
         </div>
       </header>
 
