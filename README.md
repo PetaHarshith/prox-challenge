@@ -1,10 +1,10 @@
 # OmniPro Assistant
 
-A multimodal support agent for the Vulcan OmniPro 220 welder.
+A garage-side expert for the Vulcan OmniPro 220: ask a question, get the answer, the diagram, the checklist, or the manual image that actually helps.
 
-Hosted Website: <https://prox-challenge-gamma.vercel.app/>
+Hosted demo: <https://prox-challenge-gamma.vercel.app/>
 
-Video Demo: <https://drive.google.com/file/d/1jidbqLx1CTExQaUbTLbZFz1nkJ1g19-9/view?usp=sharing/>
+Built in one focused day.
 
 ## What this is
 
@@ -12,7 +12,9 @@ The OmniPro 220 is not a simple tool. It supports MIG, flux-core, TIG, and stick
 
 The manual has the answers, but the answers are spread across tables, setup diagrams, troubleshooting charts, process-selection pages, and weld defect images.
 
-OmniPro Assistant turns that manual into a garage-side support experience. It answers technical questions, shows the right visual, and helps the user take the next correct step.
+OmniPro Assistant turns that manual into a garage-side support experience. It answers technical questions, shows the right visual, and helps the user take the next correct step without reading the whole manual.
+
+The system is designed for fast, in-context use: answers are short, visual, and immediately actionable.
 
 ## What it can do
 
@@ -40,11 +42,11 @@ Try:
 
 ```text
 User question + optional image
-  -> route the job
-  -> retrieve manual facts and visual facts
+  -> classify the job
+  -> retrieve manual + visual facts
   -> call Claude through the Agent SDK
-  -> validate the response shape
-  -> render the right artifact in React
+  -> return typed answer + visual specs
+  -> render the support artifact
 ```
 
 The important design choice is that Claude does not own the whole product behavior.
@@ -55,16 +57,24 @@ Claude writes the explanation and handles language. The product layer controls t
 
 ## Agent architecture
 
-The Claude Agent SDK integration is in `lib/vulcanAgent.ts`.
+The Claude Agent SDK is integrated in `lib/vulcanAgent.ts`.
 
-It creates a small product-specific tool server with:
+It exposes a small set of product-specific tools:
 
 - `lookup_vulcan_manual_context`
 - `lookup_vulcan_visual_knowledge`
 
-Those tools give Claude access to curated manual facts and extracted diagram knowledge. The main API route is `app/api/chat/route.ts`. It streams small JSON events to the browser so the answer and visual workspace can update quickly.
+These tools give Claude access to curated manual facts and extracted diagram knowledge, instead of relying on generic reasoning.
 
-Uploaded images use a separate Claude vision pass. The image is classified against the weld diagnosis knowledge, then the result is passed back into the main response. That gives the final answer visible clues, likely issue, confidence, checks, and fixes.
+The main API route (`app/api/chat/route.ts`) handles routing, calls the agent, and streams structured JSON events to the frontend so both the answer and visual workspace update in real time.
+
+Uploaded images follow a separate multimodal path. The image is first analyzed using Claude Vision and classified against known weld defect categories. That structured diagnosis (issue, visual clues, confidence, checks, fixes) is then injected back into the main agent response.
+
+This lets the final answer combine:
+
+- visual evidence from the image
+- grounded manual knowledge
+- structured troubleshooting steps
 
 ## Knowledge model
 
