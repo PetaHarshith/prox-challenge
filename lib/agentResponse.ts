@@ -354,16 +354,43 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
     };
   }
 
-  if (merged.visualType === "duty-cycle" && duty && !startsWithDirectAnswer(merged.answer)) {
+  if (
+    merged.visualType === "duty-cycle" &&
+    duty &&
+    !startsWithDirectAnswer(merged.answer) &&
+    !answerAlreadyCoversDutyCycle(merged.answer, duty)
+  ) {
     merged.answer = `At ${duty.amperage} on ${duty.input}, you can weld for ${duty.weldMinutes} minutes, then let it cool for ${duty.restMinutes} minutes.\n\n${merged.answer}`;
   }
 
-  if (merged.visualType === "polarity" && merged.process !== "unknown" && !startsWithDirectAnswer(merged.answer)) {
+  if (
+    merged.visualType === "polarity" &&
+    merged.process !== "unknown" &&
+    !startsWithDirectAnswer(merged.answer) &&
+    !answerAlreadyCoversPolarity(merged.answer)
+  ) {
     const setup = polaritySetups[merged.process];
     merged.answer = `${processLabel(merged.process)} setup: **${setup.positive} → +** and **${setup.negative} → −**.\n\n${merged.answer}`;
   }
 
   return merged;
+}
+
+// True when the answer already addresses polarity directly (mentions a
+// + / − assignment in any form). Used to skip the prepend that would
+// otherwise duplicate the polarity assertion for concise direct answers.
+function answerAlreadyCoversPolarity(answer: string): boolean {
+  const lower = answer.toLowerCase();
+  const mentionsPositive = /positive|\(\+\)|→\s*\+/.test(lower);
+  const mentionsNegative = /negative|\(−\)|\(-\)|→\s*−|→\s*-/.test(lower);
+  return mentionsPositive || mentionsNegative;
+}
+
+// True when the answer already states the weld/rest time for the matched
+// duty-cycle row. Skips the prepend so the same number is not repeated.
+function answerAlreadyCoversDutyCycle(answer: string, duty: { weldMinutes: number; restMinutes: number }): boolean {
+  const lower = answer.toLowerCase();
+  return lower.includes(`${duty.weldMinutes} min`) || lower.includes(`${duty.weldMinutes}-min`) || lower.includes(`${duty.weldMinutes} minute`);
 }
 
 function hydrateManualImages(images: NonNullable<PartialParsedAgentResponse["manualImages"]> | ManualImage[]): ManualImage[] {
@@ -465,15 +492,32 @@ function extractDutyCycleMatch(question: string) {
   }, rows[0]);
 }
 
+// Replaces the answer with the canonical setup procedure ONLY when the
+// answer contains a clearly WRONG polarity assertion for the process
+// (e.g., "ground clamp → negative" for flux-core). A concise correct
+// answer like "Plug the ground clamp into the positive (+) terminal" is
+// preserved so the answer style rules (1–2 sentences for direct
+// questions) are not overridden.
 function enforceSafetyCriticalSetup(process: Exclude<WeldProcess, "unknown">, answer: string) {
-  const required: Record<Exclude<WeldProcess, "unknown">, string[]> = {
-    tig: ["ground clamp → positive", "tig torch → negative", "wire feed"],
-    "flux-core": ["ground clamp → positive", "wire feed cable → negative"],
-    mig: ["ground clamp → negative", "wire feed cable → positive", "gas"],
-    stick: ["ground clamp → negative", "electrode holder → positive", "wire feed"]
+  const wrongPatterns: Record<Exclude<WeldProcess, "unknown">, RegExp[]> = {
+    "flux-core": [
+      /ground[^.\n]{0,40}(negative|→\s*[−-])/i,
+      /wire feed[^.\n]{0,40}(positive|→\s*\+)/i
+    ],
+    mig: [
+      /ground[^.\n]{0,40}(positive|→\s*\+)/i,
+      /wire feed[^.\n]{0,40}(negative|→\s*[−-])/i
+    ],
+    tig: [
+      /ground[^.\n]{0,40}(negative|→\s*[−-])/i,
+      /tig torch[^.\n]{0,40}(positive|→\s*\+)/i
+    ],
+    stick: [
+      /ground[^.\n]{0,40}(positive|→\s*\+)/i,
+      /electrode[^.\n]{0,40}(negative|→\s*[−-])/i
+    ]
   };
-  const lower = answer.toLowerCase();
-  const valid = required[process].every((token) => lower.includes(token));
-  if (valid) return answer;
-  return setupAnswer(process);
+  const containsWrong = wrongPatterns[process].some((re) => re.test(answer));
+  if (containsWrong) return setupAnswer(process);
+  return answer;
 }

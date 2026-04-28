@@ -33,17 +33,29 @@ export const runtime = "nodejs";
 // the specific question instead of asking for clarification or padding output.
 const systemPrompt = [
   "You are a welding assistant for the Vulcan OmniPro 220.",
-  "Answer ONLY the user's exact question. Be specific, practical, and correct.",
-  "Keep the chat answer CONCISE — a 1-2 sentence direct answer + at most 3 short steps. The visual workspace carries the detailed diagram/table/flow.",
-  "Do not repeat in prose what a diagram or table already shows.",
-  "If the user asks about TIG, answer TIG only. If they ask flux-core, answer flux-core only.",
-  "Never enumerate all four processes (MIG, flux-core, TIG, stick) unless the user explicitly asked to choose or compare.",
-  "If the user describes a wrong setup, call it out and show the corrected setup.",
-  "Only ask a clarifying question when the question is truly ambiguous (e.g., no process and no context). Otherwise answer directly.",
-  "Only mention an uploaded image if the user attached one this turn.",
-  "If the user asks 'what is X' / 'define X' / 'what does X mean', give a direct definition from the manual. Do NOT pivot to a setup or troubleshooting clarification.",
-  "Use known context: 'garage' = indoors (no wind concern); 'outdoors' = wind/draft concern. Do not re-ask context the user already gave.",
-  "Ground every fact in the Vulcan OmniPro 220 manual. Do not add unsupported real-world advice. Do not reorder manual troubleshooting steps unless the manual itself orders them differently for that process. For flux-core porosity questions, do NOT lead with shielding-gas / regulator checks — flux-core is self-shielded; lead with polarity, clean metal, dry/clean wire, CTWD, and steady drag technique."
+  "",
+  "ANSWER STYLE (strict — match length to the question):",
+  "1. Direct questions ('what', 'where', 'which', 'how long', 'how much'): answer in 1–2 sentences first, then optionally one short clarification line. Do NOT include full setup steps unless the user asked.",
+  "2. 'How to', 'walk me through', or multi-part questions: provide structured numbered steps (max 5).",
+  "3. Problem descriptions (holes, porosity, slipping wire, no arc, burn-through, etc.): give the diagnosis immediately. Do NOT ask for clarification when a reasonable cause is obvious from the description.",
+  "4. Definitions ('what is X', 'define X', 'explain X', 'what does X mean'): give a clear 1–2 sentence definition grounded in welding context. Do NOT route to troubleshooting or ask for setup details.",
+  "5. Always include a brief 'why' (one sentence max) for technical answers — the reason behind the recommendation.",
+  "6. Never restate the same fact (duty cycle, polarity, etc.) more than once in the same answer.",
+  "7. Real-world order: answer what they asked first, then expand only if needed.",
+  "8. Never default to 'tell me more', 'describe your setup', or similar fallback phrases when the question can be answered directly.",
+  "",
+  "SCOPE:",
+  "- Answer ONLY the user's exact question. If they ask about TIG, answer TIG only. If they ask flux-core, answer flux-core only.",
+  "- Never enumerate all four processes (MIG, flux-core, TIG, stick) unless the user explicitly asked to choose or compare.",
+  "- If the user describes a wrong setup, call it out and show the corrected setup.",
+  "- Only mention an uploaded image if the user attached one this turn.",
+  "- Use known context: 'garage' = indoors (no wind concern); 'outdoors' = wind/draft concern. Do not re-ask context the user already gave.",
+  "",
+  "GROUNDING:",
+  "- Ground every fact in the Vulcan OmniPro 220 manual. Do not add unsupported real-world advice.",
+  "- Do not reorder manual troubleshooting steps unless the manual itself orders them differently for that process.",
+  "- For flux-core porosity questions, do NOT lead with shielding-gas / regulator checks — flux-core is self-shielded; lead with polarity, clean metal, dry/clean wire, CTWD, and steady drag technique.",
+  "- Do not repeat in prose what a diagram or table already shows."
 ].join("\n");
 
 // Detects the generic "Use MIG / TIG / flux-core" comparison block when the
@@ -289,7 +301,9 @@ Rules:
 - "answer" is REQUIRED and must be a complete, specific answer to the user's question.
 - "reasoning_summary" and "highlights" are optional — include only when they add value (warning chip on contradictions, key_setting on duty cycle, etc.).
 - For troubleshooting questions, fill "troubleshootingItems" with cause→check→fix triples.
-- For duty cycle, fill "highlightContext.highlightKey" as "<voltage>-<amperage>" and "highlightLabel" as "<weld> min weld / <rest> min rest".`;
+- For duty cycle, fill "highlightContext.highlightKey" as "<voltage>-<amperage>" and "highlightLabel" as "<weld> min weld / <rest> min rest".
+- IMPORTANT: write measurements as words inside JSON strings to keep the JSON valid: use "1/8 inch" NOT 1/8" with an inch-mark, and "1/2 inch" NOT 1/2". Unescaped inch-marks break JSON parsing.
+- Output ONLY the JSON object — no prose before or after, no markdown code fences.`;
 
 function latestUserMessage(messages: ChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === "user")?.content.trim() ?? "";
@@ -299,19 +313,47 @@ function extractJson(text: string) {
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
   if (start === -1 || end === -1 || end <= start) return undefined;
+  const slice = text.slice(start, end + 1);
   try {
-    return JSON.parse(text.slice(start, end + 1));
+    return JSON.parse(slice);
   } catch {
-    return undefined;
+    // Lenient repair: most common Claude failure is unescaped inch-marks
+    // inside string values (e.g. `1/8" steel`), which break JSON.parse.
+    try {
+      return JSON.parse(repairCommonJsonIssues(slice));
+    } catch {
+      return undefined;
+    }
   }
 }
 
+// Escapes inch-marks like `1/8"` that appear inside JSON string values. A
+// quote preceded by a digit and NOT followed by a JSON terminator
+// (`,` `}` `]` `:` or whitespace + same) is treated as an inch-mark.
+function repairCommonJsonIssues(json: string): string {
+  return json.replace(/(\d)"(?!\s*[,}\]:])/g, '$1\\"');
+}
+
+// Recovers the `answer` value from a malformed JSON blob that we still
+// couldn't parse after repair. Returns "" when no answer field can be
+// located so the route can fall back cleanly without dumping raw JSON.
+function recoverAnswerFromMalformedJson(text: string): string {
+  const match = text.match(/"answer"\s*:\s*"([\s\S]*?)"\s*[,\n]\s*"[a-zA-Z_][\w]*"\s*:/);
+  if (!match) return "";
+  return match[1].replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\").trim();
+}
+
 // Strips markdown code fences and any embedded JSON block so prose answers
-// (when Claude drifts off the JSON contract) come through clean.
+// (when Claude drifts off the JSON contract) come through clean. If the
+// text is itself raw JSON we couldn't parse, attempt to recover the
+// `answer` field rather than dumping the whole JSON object into the UI.
 function cleanProseAnswer(text: string): string {
   let out = text.trim();
   out = out.replace(/^```(?:json|markdown|md)?\s*/i, "").replace(/\s*```$/i, "");
-  // If the text contains a JSON object alongside prose, drop the JSON block.
+  if (out.startsWith("{") && out.endsWith("}")) {
+    const recovered = recoverAnswerFromMalformedJson(out);
+    return recovered;
+  }
   const jsonStart = out.indexOf("{");
   const jsonEnd = out.lastIndexOf("}");
   if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
@@ -475,7 +517,7 @@ export async function POST(request: Request) {
     "- If the user asks for a specific value and it is not in the provided context, say 'The manual does not specify that' and provide what IS known.",
     "- Never use general welding knowledge that is not grounded in the provided context.",
     "- Do not guess at wire speeds, voltages, or amperage values. Always reference the manual or selection chart.",
-    "- If you need clarification to answer accurately, ask one question at a time.",
+    "- Only ask for clarification when no reasonable answer is possible from the context. If a likely cause or process is obvious from the question, answer directly.",
     "",
     "TONE:",
     "- Write like you are helping someone in real time: conversational, direct, practical.",
@@ -485,7 +527,7 @@ export async function POST(request: Request) {
     "FORMATTING:",
     "- First sentence MUST directly answer the user's question before any list or extra explanation.",
     "- Bold important cable/socket names: **ground clamp → negative (−)**",
-    "- Use numbered steps: 1. First, 2. Then, etc. Maximum 3 steps unless the user asked for a full procedure.",
+    "- Direct questions ('what / where / which / how long'): answer in 1–2 sentences, no numbered steps. Only use numbered steps when the user asks 'how to', 'walk me through', or a multi-part question (max 5 steps).",
     "- Add at most one 'Tip: ...' or one warning. No long paragraphs.",
     "- Use 'Next:' to guide what to do after this task",
     "- Never return only raw tables/lists without a direct answer sentence first.",
