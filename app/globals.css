@@ -4,7 +4,7 @@
 
 :root {
   color-scheme: light;
-  background: #f6f7f9;
+  background: #F4F2EC;
 }
 
 * {
@@ -13,8 +13,10 @@
 
 body {
   margin: 0;
-  color: #171717;
-  background: #f4f5f7;
+  color: #171A1F;
+  background:
+    radial-gradient(circle at 32% 18%, rgba(183, 245, 74, 0.12), transparent 58%),
+    #F4F2EC;
 }
 
 button,
@@ -40,11 +42,11 @@ textarea {
   0%,
   100% {
     opacity: 0.7;
-    box-shadow: 0 0 0 2px rgba(233, 84, 32, 0.3), 0 0 32px rgba(233, 84, 32, 0.35);
+    box-shadow: 0 0 0 2px rgba(183, 245, 74, 0.28), 0 0 18px rgba(183, 245, 74, 0.2);
   }
 
   50% {
     opacity: 1;
-    box-shadow: 0 0 0 3px rgba(233, 84, 32, 0.5), 0 0 48px rgba(233, 84, 32, 0.5);
+    box-shadow: 0 0 0 3px rgba(183, 245, 74, 0.34), 0 0 26px rgba(183, 245, 74, 0.22);
   }
 }

@@ -59,14 +59,16 @@ const rows: ProcessRow[] = [
 
 export function ProcessSelectionMatrix({ highlightProcess }: { highlightProcess?: string }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4">
-      <h3 className="mb-2 text-sm font-semibold text-zinc-950">Process selection matrix</h3>
-      <p className="mb-3 text-xs text-zinc-600">Why this matters: pick a process that matches gas availability, environment, and finish expectations.</p>
-      <div className="overflow-x-auto">
-        <table className="min-w-full text-left text-xs">
+    <section className="overflow-hidden rounded-xl border border-black/[0.08] bg-card shadow-none">
+      <div className="border-b border-black/[0.08] px-4 py-3">
+        <h3 className="text-sm font-semibold text-text-primary">Process selection matrix</h3>
+        <p className="mt-1 text-xs text-text-secondary">Pick a process that matches gas availability, environment, and finish expectations.</p>
+      </div>
+      <div className="overflow-x-auto p-3">
+        <table className="min-w-full border-separate border-spacing-0 text-left text-xs">
           <thead>
-            <tr className="border-b border-zinc-200 text-zinc-500">
-              <th className="py-2 pr-3">Process</th>
+            <tr className="text-text-secondary">
+              <th className="py-2 pl-3 pr-3">Process</th>
               <th className="py-2 pr-3">Gas</th>
               <th className="py-2 pr-3">Best for</th>
               <th className="py-2 pr-3">Outdoors</th>
@@ -80,15 +82,15 @@ export function ProcessSelectionMatrix({ highlightProcess }: { highlightProcess?
             {rows.map((row) => {
               const highlighted = highlightProcess === row.id;
               return (
-                <tr key={row.id} className={highlighted ? "bg-orange-50" : "bg-white"}>
-                  <td className={`py-2 pr-3 font-semibold ${highlighted ? "text-orange-900" : "text-zinc-900"}`}>{row.label}</td>
-                  <td className="py-2 pr-3 text-zinc-700">{row.gasRequired}</td>
-                  <td className="py-2 pr-3 text-zinc-700">{row.bestFor}</td>
-                  <td className="py-2 pr-3 text-zinc-700">{row.worksOutdoors}</td>
-                  <td className="py-2 pr-3 text-zinc-700">{row.cleanliness}</td>
-                  <td className="py-2 pr-3 text-zinc-700">{row.beginnerFriendly}</td>
-                  <td className="py-2 pr-3 text-zinc-700">{row.weldQuality}</td>
-                  <td className="py-2 text-zinc-700">{row.setupNotes}</td>
+                <tr key={row.id} className={`border-b border-black/[0.06] last:border-b-0 ${highlighted ? "bg-brass/20" : ""}`}>
+                  <td className={`py-3 pl-3 pr-3 font-semibold ${highlighted ? "border-l-2 border-brass text-brass" : "border-l-2 border-transparent text-text-primary"}`}>{row.label}</td>
+                  <td className="py-3 pr-3 text-text-secondary">{row.gasRequired}</td>
+                  <td className="py-3 pr-3 text-text-secondary">{row.bestFor}</td>
+                  <td className="py-3 pr-3 text-text-secondary">{row.worksOutdoors}</td>
+                  <td className="py-3 pr-3 text-text-secondary">{row.cleanliness}</td>
+                  <td className="py-3 pr-3 text-text-secondary">{row.beginnerFriendly}</td>
+                  <td className="py-3 pr-3 text-text-secondary">{row.weldQuality}</td>
+                  <td className="py-3 text-text-secondary">{row.setupNotes}</td>
                 </tr>
               );
             })}

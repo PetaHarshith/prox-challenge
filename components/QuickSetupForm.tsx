@@ -78,19 +78,19 @@ export function QuickSetupForm({ open, onClose, onSubmit }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Quick Setup">
-      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-white/80 bg-white shadow-2xl shadow-slate-950/25">
-        <header className="flex items-start justify-between gap-3 border-b border-orange-100 bg-gradient-to-r from-[#fff7ed] to-white px-5 py-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-md" role="dialog" aria-modal="true" aria-label="Quick Setup">
+      <div className="w-full max-w-lg overflow-hidden rounded-xl border border-black/[0.08] bg-card shadow-none">
+        <header className="flex items-start justify-between gap-3 border-b border-black/[0.08] bg-card px-5 py-4">
           <div className="flex items-center gap-2">
-            <div className="flex h-8 w-8 items-center justify-center rounded-md bg-torch text-white shadow-sm shadow-orange-900/20">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-brass text-[#171A1F]">
               <Wand2 size={17} />
             </div>
             <div>
-              <h2 className="text-base font-semibold text-slate-950">Quick Setup</h2>
-              <p className="text-xs text-slate-500">Answer 4 quick questions and I&apos;ll recommend a process and checklist.</p>
+              <h2 className="text-base font-semibold text-text-primary">Quick Setup</h2>
+              <p className="text-xs text-text-secondary">Answer 4 quick questions and I&apos;ll recommend a process and checklist.</p>
             </div>
           </div>
-          <button type="button" onClick={handleClose} className="rounded-md p-1 text-slate-500 hover:bg-orange-100" aria-label="Close">
+          <button type="button" onClick={handleClose} className="rounded-md p-1 text-text-secondary hover:bg-black/5 hover:text-text-primary" aria-label="Close">
             <X size={16} />
           </button>
         </header>
@@ -98,7 +98,7 @@ export function QuickSetupForm({ open, onClose, onSubmit }: Props) {
         <div className="space-y-4 px-5 py-4">
           {fields.map((field) => (
             <div key={field.key}>
-              <div className="mb-1.5 text-sm font-semibold text-slate-900">{field.label}</div>
+              <div className="mb-1.5 text-sm font-semibold text-text-primary">{field.label}</div>
               <div className="flex flex-wrap gap-2">
                 {field.options.map((opt) => {
                   const selected = answers[field.key] === opt.value;
@@ -107,7 +107,7 @@ export function QuickSetupForm({ open, onClose, onSubmit }: Props) {
                       key={String(opt.value)}
                       type="button"
                       onClick={() => pick(field.key, opt.value)}
-                      className={`rounded-full border px-3 py-1.5 text-xs font-semibold transition ${selected ? "border-torch bg-torch text-white shadow-sm shadow-orange-900/20" : "border-slate-200 bg-slate-50 text-slate-700 hover:border-slate-300 hover:bg-white"}`}
+                      className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${selected ? "border-brass bg-brass text-[#171A1F]" : "border-black/[0.08] bg-card text-text-secondary hover:border-black/15 hover:text-text-primary"}`}
                     >
                       {opt.label}
                     </button>
@@ -118,11 +118,11 @@ export function QuickSetupForm({ open, onClose, onSubmit }: Props) {
           ))}
         </div>
 
-        <footer className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+        <footer className="flex items-center justify-end gap-2 border-t border-black/[0.08] bg-card-soft px-5 py-3">
           <button
             type="button"
             onClick={handleClose}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-100"
+            className="rounded-xl border border-black/[0.08] bg-card px-3 py-2 text-sm font-semibold text-text-secondary hover:bg-black/5 hover:text-text-primary"
           >
             Cancel
           </button>
@@ -130,7 +130,7 @@ export function QuickSetupForm({ open, onClose, onSubmit }: Props) {
             type="button"
             onClick={handleSubmit}
             disabled={!allAnswered}
-            className="inline-flex items-center gap-1.5 rounded-md bg-torch px-3 py-2 text-sm font-semibold text-white shadow-sm shadow-orange-900/20 hover:bg-[#c94114] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brass px-3 py-2 text-sm font-semibold text-[#171A1F] hover:bg-[#A7EA32] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Wand2 size={14} />
             Generate setup

@@ -12,7 +12,7 @@ export function SourceChips({ refs }: { refs: ManualRef[] }) {
           href={ref.url}
           target="_blank"
           rel="noreferrer"
-          className="inline-flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700 hover:bg-zinc-200"
+          className="inline-flex items-center gap-1 rounded-md border border-black/[0.08] bg-card-soft px-2 py-1 text-xs font-medium text-text-secondary hover:bg-black/5 hover:text-text-primary"
         >
           {ref.source}
           {ref.page ? ` p. ${ref.page}` : ""}

@@ -1,8 +1,8 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Eye, ImagePlus, Send, Wand2, X } from "lucide-react";
+import { Cpu, Eye, ImagePlus, Send, Wand2, X } from "lucide-react";
 import { SourceChips } from "@/components/SourceChips";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { VisualWorkspace } from "@/components/VisualWorkspace";
@@ -167,10 +167,35 @@ export default function Home() {
   // so the latest answer always wins by default.
   const [pinnedTurnId, setPinnedTurnId] = useState<string | null>(null);
   const [quickSetupOpen, setQuickSetupOpen] = useState(false);
+  const [workspaceWidth, setWorkspaceWidth] = useState(520);
   const fileRef = useRef<HTMLInputElement>(null);
   const activeRequestController = useRef<AbortController | null>(null);
   const chatScrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+
+  function startWorkspaceResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = workspaceWidth;
+
+    function onPointerMove(moveEvent: PointerEvent) {
+      const nextWidth = startWidth + startX - moveEvent.clientX;
+      const maxWidth = Math.min(820, window.innerWidth - 520);
+      setWorkspaceWidth(Math.min(Math.max(nextWidth, 380), Math.max(maxWidth, 420)));
+    }
+
+    function onPointerUp() {
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    }
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+  }
 
   function handleQuickSetupSubmit(answers: QuickSetupAnswers) {
     const { question, response } = buildQuickSetupResponse(answers);
@@ -354,20 +379,37 @@ export default function Home() {
   }
 
   return (
-    <main className="flex h-screen min-h-[720px] flex-col bg-[radial-gradient(circle_at_top_left,#fff1e7_0,#f7fafc_34%,#e7edf1_100%)] text-slate-950">
-      <header className="flex h-16 shrink-0 items-center justify-between border-b border-slate-900/10 bg-[#18212b] px-5 text-white shadow-lg shadow-slate-900/10">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-torch text-sm font-black text-white shadow-md shadow-orange-950/30">
-            220
+    <main className="relative flex h-screen min-h-[720px] flex-col overflow-hidden bg-[radial-gradient(circle_at_32%_18%,rgba(183,245,74,0.12),transparent_58%),#F4F2EC] text-text-primary">
+      <header className="relative z-10 flex h-12 shrink-0 items-center justify-between border-b border-black/[0.08] bg-[#F8F7F2]/90 px-5 text-text-primary backdrop-blur-md">
+        <div className="relative z-10 flex min-w-0 items-center gap-2.5">
+          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] bg-[#171A1F] text-brass">
+            <Cpu size={16} />
+            <span className="absolute right-1 top-1 h-1.5 w-1.5 rounded-full bg-sage" />
           </div>
-          <div className="min-w-0">
-            <h1 className="truncate text-base font-semibold text-white">Vulcan OmniPro 220 Assistant</h1>
-            <p className="truncate text-xs text-slate-300">Garage setup, troubleshooting, and visual weld guidance</p>
+          <div className="min-w-0 leading-none">
+            <div className="flex items-center gap-2">
+              <h1 className="truncate text-sm font-semibold text-text-primary">OmniPro 220</h1>
+              <span className="hidden rounded-full border border-black/[0.08] bg-card px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] text-text-secondary sm:inline-flex">
+                WeldOps Agent
+              </span>
+            </div>
+            <p className="mt-1 hidden truncate text-[11px] text-text-secondary sm:block">Vulcan setup, troubleshooting, and visual guidance</p>
           </div>
+        </div>
+        <div className="relative z-10 hidden items-center gap-2 sm:flex">
+          <span className="rounded-full border border-black/[0.08] bg-card px-2.5 py-1 text-xs font-medium text-text-secondary">
+            Manual grounded
+          </span>
+          <span className="rounded-full border border-black/[0.08] bg-card px-2.5 py-1 text-xs font-medium text-text-secondary">
+            Visual workspace
+          </span>
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,1fr)]">
+      <div
+        className="relative z-10 grid min-h-0 flex-1 xl:[grid-template-columns:minmax(0,1fr)_var(--workspace-width)]"
+        style={{ "--workspace-width": `${workspaceWidth}px` } as CSSProperties}
+      >
         <section className="flex min-h-0 flex-col bg-transparent">
           <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
             <div className="mx-auto max-w-4xl space-y-4">
@@ -380,8 +422,8 @@ export default function Home() {
                     <div
                       className={
                         turn.role === "user"
-                          ? "max-w-[82%] rounded-lg bg-[#223142] px-4 py-3 text-white shadow-md shadow-slate-900/10"
-                          : `max-w-[88%] rounded-lg border bg-white/95 px-4 py-3 text-slate-900 shadow-sm backdrop-blur ${isPinned ? "border-torch ring-1 ring-torch/30" : "border-slate-200"}`
+                          ? "max-w-[82%] rounded-xl border border-black/[0.08] bg-[#171A1F] px-4 py-3 text-sm font-medium text-white"
+                          : `max-w-[88%] rounded-xl border bg-card px-4 py-3 text-text-primary ${isPinned ? "border-brass/60 ring-1 ring-brass/20" : "border-black/[0.08]"}`
                       }
                     >
                       {turn.role === "user" ? (
@@ -390,10 +432,10 @@ export default function Home() {
                         <MarkdownContent content={turn.content} />
                       )}
                       {turn.imagePreview ? (
-                        <Image src={turn.imagePreview} alt="Uploaded question context" width={360} height={240} className="mt-3 rounded-md border border-white/20" />
+                        <Image src={turn.imagePreview} alt="Uploaded question context" width={360} height={240} className="mt-3 rounded-xl border border-black/[0.08]" />
                       ) : null}
                       {turn.response?.highlights?.warning ? (
-                        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+                        <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-ember/35 bg-ember/10 px-2.5 py-1 text-xs font-medium text-ember">
                           <span aria-hidden>⚠</span>
                           <span>{turn.response.highlights.warning}</span>
                         </div>
@@ -404,19 +446,19 @@ export default function Home() {
                         </div>
                       ) : null}
                       {turn.response?.reasoning_summary ? (
-                        <details className="mt-3 text-xs text-zinc-600">
-                          <summary className="cursor-pointer select-none font-semibold text-zinc-700 hover:text-zinc-900">Why this answer</summary>
-                          <p className="mt-1.5 leading-5">{turn.response.reasoning_summary}</p>
+                        <details className="mt-3 text-xs text-text-secondary">
+                          <summary className="cursor-pointer select-none font-medium text-text-secondary hover:text-text-primary">Why this answer</summary>
+                          <p className="mt-1.5 leading-5 text-text-secondary">{turn.response.reasoning_summary}</p>
                         </details>
                       ) : null}
-                      {turn.response?.warning ? <p className="mt-3 text-xs text-amber-700">{turn.response.warning}</p> : null}
+                      {turn.response?.warning ? <p className="mt-3 text-xs text-ember">{turn.response.warning}</p> : null}
                       {turnHasVisuals && !isLatestAssistant ? (
                         <div className="mt-3">
                           <button
                             type="button"
                             onClick={() => setPinnedTurnId(isPinned ? null : turn.id)}
                             aria-pressed={isPinned}
-                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-semibold transition ${isPinned ? "border-torch bg-orange-50 text-torch" : "border-zinc-300 bg-white text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"}`}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition ${isPinned ? "border-brass/60 bg-brass/20 text-text-primary" : "border-black/[0.08] bg-card-soft text-text-secondary hover:text-text-primary"}`}
                           >
                             <Eye size={13} />
                             {isPinned ? "Viewing visual" : "View visual"}
@@ -434,28 +476,28 @@ export default function Home() {
             </div>
           </div>
 
-          <form onSubmit={handleSubmit} className="border-t border-white/70 bg-white/70 p-4 shadow-[0_-18px_60px_rgba(15,23,42,0.08)] backdrop-blur">
+          <form onSubmit={handleSubmit} className="border-t border-black/[0.08] bg-[#F4F2EC]/95 p-4 backdrop-blur-md">
             <div className="mx-auto max-w-4xl">
-              <div className="rounded-xl border border-white/80 bg-white/90 p-3 shadow-panel">
+              <div className="rounded-xl border border-black/[0.08] bg-card p-3 shadow-panel">
                 <div className="mb-3 flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     disabled={isLoading}
                     onClick={() => setQuickSetupOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-orange-500 bg-white px-3.5 py-1.5 text-xs font-black text-orange-700 shadow-sm shadow-orange-900/10 ring-2 ring-orange-100 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-full border border-black/[0.08] bg-brass px-3.5 py-1.5 text-xs font-semibold text-[#171A1F] hover:bg-[#A7EA32] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-torch text-white">
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-black/10 text-[#171A1F]">
                       <Wand2 size={12} />
                     </span>
                     Quick Setup
                   </button>
-                  {suggestionChips.map((chip) => (
+                  {suggestionChips.slice(0, 3).map((chip) => (
                     <button
                       key={chip.label}
                       type="button"
                       disabled={isLoading}
                       onClick={() => void submitPrompt(chip.prompt)}
-                      className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:border-slate-300 hover:bg-white disabled:cursor-not-allowed disabled:opacity-50"
+                      className="rounded-full border border-black/[0.08] bg-card-soft px-3 py-1.5 text-xs font-medium text-text-secondary hover:border-black/15 hover:text-text-primary disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       {chip.label}
                     </button>
@@ -463,23 +505,23 @@ export default function Home() {
                 </div>
 
                 {imagePreview ? (
-                  <div className="mb-3 flex items-center gap-3 rounded-md border border-zinc-200 bg-white p-2">
+                  <div className="mb-3 flex items-center gap-3 rounded-lg border border-black/[0.08] bg-card-soft p-2">
                     <Image src={imagePreview} alt="Upload preview" width={70} height={52} className="h-12 w-16 rounded object-cover" />
-                    <span className="flex-1 text-sm text-zinc-700">Image attached</span>
-                    <button type="button" onClick={() => setImagePreview(undefined)} className="rounded-md p-2 text-zinc-500 hover:bg-zinc-200" aria-label="Remove image">
+                    <span className="flex-1 text-sm text-text-secondary">Image attached</span>
+                    <button type="button" onClick={() => setImagePreview(undefined)} className="rounded-md p-2 text-text-secondary hover:bg-black/5 hover:text-text-primary" aria-label="Remove image">
                       <X size={16} />
                     </button>
                   </div>
                 ) : null}
 
-                {uploadError ? <p className="mb-3 text-sm text-amber-700">{uploadError}</p> : null}
+                {uploadError ? <p className="mb-3 text-sm text-ember">{uploadError}</p> : null}
 
                 <div className="flex gap-2">
                   <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(event) => void handleFile(event.target.files?.[0])} />
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-slate-700 hover:bg-white"
+                    className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] bg-card-soft text-text-secondary hover:text-text-primary"
                     aria-label="Attach image"
                   >
                     <ImagePlus size={20} />
@@ -495,13 +537,13 @@ export default function Home() {
                     }}
                     rows={1}
                     placeholder="Ask about polarity, duty cycle, wire loading, porosity..."
-                    className="min-h-12 flex-1 resize-none rounded-md border border-slate-200 bg-white px-3 py-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-torch focus:ring-2 focus:ring-orange-100"
+                    className="min-h-12 flex-1 resize-none rounded-lg border border-black/[0.08] bg-white px-3 py-3 text-sm text-text-primary outline-none placeholder:text-text-secondary/65 focus:border-brass"
                   />
                   {isLoading ? (
                     <button
                       type="button"
                       onClick={stopPrompt}
-                      className="inline-flex h-12 items-center gap-2 rounded-md bg-slate-900 px-4 text-sm font-semibold text-white hover:bg-slate-700"
+                      className="inline-flex h-12 items-center gap-2 rounded-lg border border-black/[0.08] bg-card-soft px-4 text-sm font-medium text-text-primary hover:bg-black/5"
                     >
                       <X size={17} />
                       Stop
@@ -510,7 +552,7 @@ export default function Home() {
                     <button
                       type="submit"
                       disabled={!input.trim()}
-                      className="inline-flex h-12 items-center gap-2 rounded-md bg-torch px-4 text-sm font-semibold text-white shadow-sm shadow-orange-900/20 hover:bg-[#c94114] disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex h-12 items-center gap-2 rounded-lg bg-[#171A1F] px-4 text-sm font-semibold text-white hover:bg-black disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       <Send size={17} />
                       Send
@@ -522,11 +564,22 @@ export default function Home() {
           </form>
         </section>
 
-        <VisualWorkspace
-          response={displayedResponse}
-          userQuestion={displayedUserQuestion}
-          isLoading={isLoading && !pinnedTurnId}
-        />
+        <div className="relative min-h-0 overflow-hidden">
+          <button
+            type="button"
+            onPointerDown={startWorkspaceResize}
+            className="group absolute left-0 top-0 z-30 hidden h-full w-3 -translate-x-1/2 cursor-col-resize items-center justify-center xl:flex"
+            aria-label="Resize visual workspace"
+            title="Drag to resize visual workspace"
+          >
+            <span className="h-16 w-1 rounded-full border border-black/[0.08] bg-black/10 transition group-hover:h-24 group-hover:bg-brass" />
+          </button>
+          <VisualWorkspace
+            response={displayedResponse}
+            userQuestion={displayedUserQuestion}
+            isLoading={isLoading && !pinnedTurnId}
+          />
+        </div>
       </div>
       <QuickSetupForm
         open={quickSetupOpen}
@@ -539,11 +592,11 @@ export default function Home() {
 
 function ThinkingBubble({ label }: { label: string }) {
   return (
-    <div className="inline-flex items-center gap-3 rounded-lg border border-orange-100 bg-white/95 px-4 py-3 text-sm text-slate-700 shadow-sm">
+    <div className="inline-flex items-center gap-3 rounded-xl border border-black/[0.08] bg-card px-4 py-3 text-sm text-text-secondary shadow-panel">
       <span className="flex items-end gap-1" aria-hidden>
-        <span className="h-2 w-2 animate-bounce rounded-full bg-torch" />
-        <span className="h-2 w-2 animate-bounce rounded-full bg-orange-400 [animation-delay:120ms]" />
-        <span className="h-2 w-2 animate-bounce rounded-full bg-amber-400 [animation-delay:240ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-brass" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-sage [animation-delay:120ms]" />
+        <span className="h-2 w-2 animate-bounce rounded-full bg-ember [animation-delay:240ms]" />
       </span>
       <span className="font-medium">{label}</span>
     </div>

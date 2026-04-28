@@ -18,21 +18,21 @@ export function ImageDiagnosisPanel({
   reference?: { title: string; page?: string };
 }) {
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4">
+    <section className="rounded-xl border border-black/[0.08] bg-card p-4 shadow-none">
       <div className="mb-3 flex items-center gap-2">
-        <Camera size={18} className="text-torch" />
-        <h3 className="text-sm font-semibold text-zinc-950">Image diagnosis</h3>
+        <Camera size={18} className="text-acid" />
+        <h3 className="text-sm font-semibold text-text-primary">Image diagnosis</h3>
       </div>
 
-      <div className="rounded-md bg-zinc-100 p-3 text-sm">
-        <p className="font-semibold text-zinc-950">Likely issue: {diagnosis.likelyIssue}</p>
-        <p className="mt-1 text-xs text-zinc-600">Confidence: {diagnosis.confidence}</p>
+      <div className="rounded-xl border border-black/[0.08] bg-card-soft p-3 text-sm">
+        <p className="font-semibold text-text-primary">Likely issue: {diagnosis.likelyIssue}</p>
+        <p className="mt-1 text-xs text-text-secondary">Confidence: {diagnosis.confidence}</p>
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase text-zinc-500">Visual clues</p>
-          <ul className="space-y-1 text-sm text-zinc-800">
+          <p className="mb-1 text-xs font-semibold uppercase text-text-secondary">Visual clues</p>
+          <ul className="space-y-1 text-sm text-text-secondary">
             {diagnosis.visualClues.map((item) => (
               <li key={item} className="flex items-start gap-2">
                 <CheckCircle2 size={14} className="mt-1 shrink-0 text-emerald-600" />
@@ -42,11 +42,11 @@ export function ImageDiagnosisPanel({
           </ul>
         </div>
         <div>
-          <p className="mb-1 text-xs font-semibold uppercase text-zinc-500">Checks to run first</p>
-          <ul className="space-y-1 text-sm text-zinc-800">
+          <p className="mb-1 text-xs font-semibold uppercase text-text-secondary">Checks to run first</p>
+          <ul className="space-y-1 text-sm text-text-secondary">
             {diagnosis.checks.map((item) => (
               <li key={item} className="flex items-start gap-2">
-                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-torch" />
+                <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-acid" />
                 <span>{item}</span>
               </li>
             ))}
@@ -55,8 +55,8 @@ export function ImageDiagnosisPanel({
       </div>
 
       <div className="mt-3">
-        <p className="mb-1 text-xs font-semibold uppercase text-zinc-500">Fixes</p>
-        <ul className="space-y-1 text-sm text-zinc-800">
+        <p className="mb-1 text-xs font-semibold uppercase text-text-secondary">Fixes</p>
+        <ul className="space-y-1 text-sm text-text-secondary">
           {diagnosis.fixes.map((item) => (
             <li key={item}>- {item}</li>
           ))}
@@ -64,14 +64,14 @@ export function ImageDiagnosisPanel({
       </div>
 
       {diagnosis.caution ? (
-        <div className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+        <div className="mt-3 flex items-start gap-2 rounded-xl border border-acid/25 bg-acid/10 p-3 text-sm text-text-primary">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <span>{diagnosis.caution}</span>
         </div>
       ) : null}
 
       {reference ? (
-        <p className="mt-3 text-xs text-zinc-600">
+        <p className="mt-3 text-xs text-text-secondary">
           Related manual reference: {reference.title}
           {reference.page ? ` (p.${reference.page})` : ""}
         </p>

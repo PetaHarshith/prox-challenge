@@ -17,13 +17,13 @@ export function DutyCycleCard({ rows, highlightKey, highlightLabel }: DutyCycleC
   const activeKey = highlightKey ?? `${rows[0]?.input ?? "240V"}-${rows[0]?.amperage ?? "200A"}`;
 
   return (
-    <section className="rounded-lg border border-zinc-200 bg-white p-4">
+    <section className="rounded-xl border border-black/[0.08] bg-card p-4 shadow-none">
       <div className="mb-3 flex items-center gap-2">
-        <Clock3 size={18} className="text-torch" />
-        <h3 className="text-sm font-semibold text-zinc-950">MIG duty cycle</h3>
+        <Clock3 size={18} className="text-acid" />
+        <h3 className="text-sm font-semibold text-text-primary">MIG duty cycle</h3>
       </div>
       {highlightLabel ? (
-        <div className="mb-3 rounded-md border border-torch/30 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-900">
+        <div className="mb-3 rounded-xl border border-acid/25 bg-acid/10 px-3 py-2 text-xs font-semibold text-acid">
           {highlightLabel}
         </div>
       ) : null}
@@ -36,14 +36,14 @@ export function DutyCycleCard({ rows, highlightKey, highlightLabel }: DutyCycleC
             <div
               key={rowKey}
               className={`grid grid-cols-[58px_64px_54px_1fr] items-center gap-2 rounded-md p-3 text-sm transition ${highlighted
-                ? "border border-torch/40 bg-orange-50 shadow-[0_0_0_1px_rgba(233,84,32,0.2)]"
-                : "bg-zinc-50 opacity-60"
+                ? "border border-acid/30 bg-acid/10"
+                : "bg-card opacity-70"
                 }`}
             >
-            <span className="font-semibold text-zinc-950">{row.input}</span>
+            <span className="font-semibold text-text-primary">{row.input}</span>
             <span>{row.amperage}</span>
-            <span className="font-semibold text-torch">{row.dutyCycle}</span>
-            <span className={`text-xs leading-5 ${highlighted ? "text-zinc-700" : "text-zinc-500"}`}>
+            <span className="font-semibold text-acid">{row.dutyCycle}</span>
+            <span className={`text-xs leading-5 ${highlighted ? "text-text-primary" : "text-text-secondary"}`}>
               <span className="mr-2 font-mono text-[11px]">{indicatorBars(dutyPercent)}</span>
               {row.weldMinutes} min weld / {row.restMinutes} min rest
             </span>
@@ -51,7 +51,7 @@ export function DutyCycleCard({ rows, highlightKey, highlightLabel }: DutyCycleC
           );
         })}
       </div>
-      <p className="mt-3 text-sm text-zinc-700">
+      <p className="mt-3 text-sm text-text-secondary">
         Duty cycle is measured over 10 minutes. Stop and let the machine cool when you hit the rated weld time.
       </p>
     </section>

@@ -37,15 +37,15 @@ export function PreWeldChecklist({ process, items, title }: Props) {
   }
 
   return (
-    <section className="rounded-lg border border-emerald-100 bg-gradient-to-br from-white to-emerald-50/45 p-4 shadow-sm">
+    <section className="rounded-xl border border-black/[0.08] bg-card p-4 shadow-none">
       <header className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <div className="flex h-7 w-7 items-center justify-center rounded-md bg-emerald-600 text-white">
+          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-brass text-[#171A1F]">
             <ListChecks size={16} />
           </div>
-          <h3 className="text-sm font-semibold text-slate-950">{title ?? labelByProcess[process]}</h3>
+          <h3 className="text-sm font-semibold text-text-primary">{title ?? labelByProcess[process]}</h3>
         </div>
-        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${allDone ? "bg-emerald-100 text-emerald-800" : "bg-white text-slate-700 ring-1 ring-slate-200"}`}>
+        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${allDone ? "bg-emerald-400/15 text-emerald-300" : "bg-card-soft text-text-secondary ring-1 ring-black/[0.08]"}`}>
           {done}/{total}
         </span>
       </header>
@@ -57,7 +57,7 @@ export function PreWeldChecklist({ process, items, title }: Props) {
           return (
             <li
               key={`${item.text}-${index}`}
-              className={`rounded-md border p-2.5 transition ${isChecked ? "border-emerald-200 bg-emerald-50/80" : "border-slate-200 bg-white/90"}`}
+              className={`rounded-xl border p-2.5 transition ${isChecked ? "border-emerald-300/30 bg-emerald-400/10" : "border-black/[0.08] bg-card"}`}
             >
               <div className="flex items-start gap-2.5">
                 <button
@@ -65,7 +65,7 @@ export function PreWeldChecklist({ process, items, title }: Props) {
                   onClick={() => toggle(index)}
                   aria-pressed={isChecked}
                   aria-label={isChecked ? "Uncheck item" : "Check item"}
-                  className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border ${isChecked ? "border-emerald-600 bg-emerald-600 text-white" : "border-slate-300 bg-white text-transparent hover:border-slate-400"}`}
+                  className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border ${isChecked ? "border-emerald-400 bg-emerald-400 text-black" : "border-black/20 bg-card-soft text-transparent hover:border-black/30"}`}
                 >
                   <Check size={13} />
                 </button>
@@ -73,7 +73,7 @@ export function PreWeldChecklist({ process, items, title }: Props) {
                   <button
                     type="button"
                     onClick={() => toggle(index)}
-                    className={`block w-full text-left text-sm leading-5 ${isChecked ? "text-slate-500 line-through" : "text-slate-900"}`}
+                    className={`block w-full text-left text-sm leading-5 ${isChecked ? "text-text-secondary line-through" : "text-text-primary"}`}
                   >
                     {item.text}
                   </button>
@@ -81,13 +81,13 @@ export function PreWeldChecklist({ process, items, title }: Props) {
                     type="button"
                     onClick={() => setOpenHint(isHintOpen ? null : index)}
                     aria-expanded={isHintOpen}
-                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-slate-500 hover:text-slate-900"
+                    className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-text-secondary hover:text-text-primary"
                   >
                     Not sure?
                     <ChevronDown size={11} className={`transition ${isHintOpen ? "rotate-180" : ""}`} />
                   </button>
                   {isHintOpen ? (
-                    <p className="mt-1.5 rounded-md bg-slate-50 px-2.5 py-1.5 text-xs leading-5 text-slate-700 ring-1 ring-slate-100">
+                    <p className="mt-1.5 rounded-xl bg-card-soft px-2.5 py-1.5 text-xs leading-5 text-text-secondary ring-1 ring-black/[0.08]">
                       {item.hint}
                     </p>
                   ) : null}
@@ -99,7 +99,7 @@ export function PreWeldChecklist({ process, items, title }: Props) {
       </ul>
 
       {allDone ? (
-        <div className="mt-3 flex items-center gap-2 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+        <div className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-300/30 bg-emerald-400/10 px-3 py-2 text-sm font-semibold text-emerald-300">
           <Check size={15} /> All checks complete — strike a short test arc on scrap first.
         </div>
       ) : null}

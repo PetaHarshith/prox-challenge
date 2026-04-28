@@ -1,9 +1,20 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { NextResponse } from "next/server";
 import { AgentResponseSchema, localGroundedResponse, normalizeAgentResponse, type AgentResponse, type VisualSpec } from "@/lib/agentResponse";
-import { agentToolNames } from "@/lib/claudeAgent";
 import { nextConversationState, resolveConversationalQuestion, type ConversationState } from "@/lib/conversationState";
-import { retrieveManualContext, manualImages, processManualImageIndex, type ManualImage, type WeldProcess } from "@/lib/manualKnowledge";
+import {
+  dutyCycleRows,
+  manualImages,
+  ownerRef,
+  polaritySetups,
+  processManualImageIndex,
+  quickRef,
+  retrieveManualContext,
+  troubleshootingChecks,
+  type ManualImage,
+  type ManualRef,
+  type WeldProcess
+} from "@/lib/manualKnowledge";
 import { findManualImageById, getManualImageRef } from "@/lib/manualImageIndex";
 import { planOutput, planVisuals, structuredCacheKey, type PlannerIntent, type PlannerVisualType } from "@/lib/outputPlanner";
 import type { VisualType } from "@/lib/manualKnowledge";
@@ -14,6 +25,7 @@ import {
   weldDiagnosisKnowledge
 } from "@/lib/manualVisualKnowledge";
 import { detectSmartWarnings } from "@/lib/smartWarnings";
+import { runVulcanAgent, vulcanAgentToolNames } from "@/lib/vulcanAgent";
 
 export const runtime = "nodejs";
 
@@ -28,7 +40,10 @@ const systemPrompt = [
   "Never enumerate all four processes (MIG, flux-core, TIG, stick) unless the user explicitly asked to choose or compare.",
   "If the user describes a wrong setup, call it out and show the corrected setup.",
   "Only ask a clarifying question when the question is truly ambiguous (e.g., no process and no context). Otherwise answer directly.",
-  "Only mention an uploaded image if the user attached one this turn."
+  "Only mention an uploaded image if the user attached one this turn.",
+  "If the user asks 'what is X' / 'define X' / 'what does X mean', give a direct definition from the manual. Do NOT pivot to a setup or troubleshooting clarification.",
+  "Use known context: 'garage' = indoors (no wind concern); 'outdoors' = wind/draft concern. Do not re-ask context the user already gave.",
+  "Ground every fact in the Vulcan OmniPro 220 manual. Do not add unsupported real-world advice. Do not reorder manual troubleshooting steps unless the manual itself orders them differently for that process. For flux-core porosity questions, do NOT lead with shielding-gas / regulator checks — flux-core is self-shielded; lead with polarity, clean metal, dry/clean wire, CTWD, and steady drag technique."
 ].join("\n");
 
 // Detects the generic "Use MIG / TIG / flux-core" comparison block when the
@@ -67,6 +82,54 @@ function composeImageDiagnosisAnswer(d: NonNullable<AgentResponse["imageDiagnosi
     lines.push(`Note: ${d.caution}`);
   }
   return lines.join("\n");
+}
+
+// Detects "what is X / define X / explain X / what does X mean" phrasing.
+function isDefinitionQuestion(text: string): boolean {
+  return /\b(what(?:'?s| is| are| does)|define|explain|meaning of|tell me about)\b/i.test(text);
+}
+
+// For definition-style questions about known terms (CTWD, porosity, duty
+// cycle, polarity, stickout), pull KB facts so Claude has manual-grounded
+// snippets and refs to ground its answer in. Returns empty when no known
+// term is matched — Claude still answers, but with whatever the base
+// retrieveManualContext provided.
+function getDefinitionContextSnippets(question: string): { snippets: string[]; refs: ManualRef[] } {
+  const lower = question.toLowerCase();
+  const snippets: string[] = [];
+  const refs: ManualRef[] = [];
+
+  if (/\bporosity\b|\bporous\b|\bpinholes?\b/.test(lower)) {
+    snippets.push("Definition — Porosity: pinholes or small craters in the bead caused by gas trapped in the puddle as it solidifies (Owner's Manual, p. 37).");
+    troubleshootingChecks.porosity.forEach((c) => snippets.push(`Manual porosity check: ${c}`));
+    refs.push(ownerRef("Troubleshooting and weld diagnosis", "37"));
+  }
+
+  if (/\bctwd\b|\bcontact[- ]?tip[- ]?to[- ]?work\b|\bstick[- ]?out\b|\bstickout\b/.test(lower)) {
+    snippets.push("Definition — CTWD: contact-tip-to-work distance, the distance from the contact tip inside the gun nozzle to the workpiece.");
+    snippets.push("Manual CTWD guidance: maintain 1/2\" or less CTWD (Owner's Manual, p. 35).");
+    snippets.push("Manual CTWD guidance: too long → porosity, weak penetration, wandering arc; reduce CTWD.");
+    snippets.push("Manual CTWD guidance: too short → wire stubs into the tip; back off slightly.");
+    refs.push(ownerRef("Wire Weld diagrams – CTWD", "35"));
+    refs.push(ownerRef("Burn-through / inadequate penetration", "36"));
+  }
+
+  if (/\bduty[- ]?cycle\b/.test(lower)) {
+    snippets.push("Definition — Duty cycle: the percentage of a 10-minute window the welder can run continuously at a given amperage before it needs to cool (Owner's Manual, p. 7).");
+    dutyCycleRows.forEach((r) => snippets.push(`Manual duty-cycle row: ${r.input} ${r.amperage} ${r.dutyCycle} → ${r.weldMinutes} min weld / ${r.restMinutes} min rest.`));
+    refs.push(ownerRef("Duty cycle ratings", "7"));
+  }
+
+  if (/\bpolarity\b/.test(lower)) {
+    snippets.push("Definition — Polarity: which welding cable plugs into the positive (+) vs negative (−) socket on the welder. Controls heat distribution between the electrode and workpiece (Owner's Manual, p. 13).");
+    (Object.values(polaritySetups)).forEach((p) => {
+      snippets.push(`Manual polarity (${p.label}): positive socket = ${p.positive}; negative socket = ${p.negative}; wire feed ${p.wireFeed}.`);
+    });
+    refs.push(ownerRef("Polarity and connections", "13"));
+    refs.push(quickRef("Polarity quick reference", "1"));
+  }
+
+  return { snippets, refs };
 }
 
 // Builds cause/check/fix items from the live image diagnosis so the
@@ -243,6 +306,23 @@ function extractJson(text: string) {
   }
 }
 
+// Strips markdown code fences and any embedded JSON block so prose answers
+// (when Claude drifts off the JSON contract) come through clean.
+function cleanProseAnswer(text: string): string {
+  let out = text.trim();
+  out = out.replace(/^```(?:json|markdown|md)?\s*/i, "").replace(/\s*```$/i, "");
+  // If the text contains a JSON object alongside prose, drop the JSON block.
+  const jsonStart = out.indexOf("{");
+  const jsonEnd = out.lastIndexOf("}");
+  if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+    const before = out.slice(0, jsonStart).trim();
+    const after = out.slice(jsonEnd + 1).trim();
+    const proseOnly = [before, after].filter(Boolean).join("\n\n").trim();
+    if (proseOnly.length > 0) out = proseOnly;
+  }
+  return out.trim();
+}
+
 export async function POST(request: Request) {
   const body = (await request.json()) as ChatRequest;
   const rawQuestion = latestUserMessage(body.messages);
@@ -273,15 +353,51 @@ export async function POST(request: Request) {
   const indexedVisual = findManualImageById(outputPlan.visualId);
   const visualFacts = indexedVisual ? indexedVisual.extractedFacts : [];
 
+  // Drop the MIG-only gas/regulator check from the snippets sent to Claude
+  // when the question is flux-core porosity. Flux-core is self-shielded, so
+  // the manual's gas-bottle check does not apply and would derail the answer.
+  const lowerQ = question.toLowerCase();
+  const isFluxCorePorosity =
+    /\bflux[- ]?core\b|gasless|self[- ]shield/.test(lowerQ) &&
+    /\bporosity\b|\bporous\b|\bpinholes?\b|\bbubbles?\b|\bholes?\b/.test(lowerQ);
+  if (isFluxCorePorosity) {
+    context.snippets = context.snippets.filter(
+      (s) => !/cylinder valve|regulator flow|gas hose|drafts at the weld|shielding gas/i.test(s)
+    );
+  }
+
+  // Definition questions ("what is X / define X") get extra KB-grounded
+  // snippets and refs added to the context so Claude can answer directly
+  // from the manual. We do NOT short-circuit with a hand-written answer —
+  // Claude generates the response, just with richer KB grounding.
+  const isDefinition = isDefinitionQuestion(question);
+  if (isDefinition) {
+    const def = getDefinitionContextSnippets(question);
+    if (def.snippets.length) {
+      context.snippets.push(...def.snippets);
+      const seen = new Set(context.refs.map((r) => `${r.source}-${r.title}`));
+      for (const r of def.refs) {
+        const key = `${r.source}-${r.title}`;
+        if (!seen.has(key)) {
+          context.refs.push(r);
+          seen.add(key);
+        }
+      }
+    }
+  }
+
   // Ambiguity short-circuit: if the planner detected critical info is missing
   // (vague setup, vague troubleshooting), return a focused 3-bullet
   // clarification instead of guessing. Skips Claude entirely. The user's reply
   // is resolved on the next turn via conversationState.pending.
+  // Definition questions bypass this — "what is polarity" should be answered,
+  // not pivoted into a setup dialog.
   if (
     outputPlan.needsClarification &&
     outputPlan.clarificationQuestion &&
     !body.image?.data &&
-    !resolved.resolvedFromPending
+    !resolved.resolvedFromPending &&
+    !isDefinition
   ) {
     // Use polarity/troubleshooting visualType (not "text") so the existing
     // pending-state machinery in nextConversationState recognizes the question
@@ -411,7 +527,7 @@ export async function POST(request: Request) {
     `Planned visual id: ${outputPlan.visualId ?? "none"}`,
     `Detected visual type: ${context.visualType}`,
     `Detected process: ${context.process}`,
-    `Agent SDK retrieval tools available in this app: ${agentToolNames.join(", ")}`,
+    `Tools you may call during reasoning (Claude Agent SDK / MCP): ${vulcanAgentToolNames.join(", ")}. Call lookup_vulcan_manual_context only if the inline manual context below does not already contain the fact you need. Call lookup_vulcan_visual_knowledge only if you need additional indexed visual/diagram facts. Default to the inline context to keep responses fast.`,
     "",
     "Retrieved manual context (use ONLY these facts):",
     context.snippets.map((snippet) => `- ${snippet}`).join("\n"),
@@ -425,28 +541,14 @@ export async function POST(request: Request) {
     `User question: ${question}`
   ].join("\n");
 
-  const content: Anthropic.MessageParam["content"] = [{ type: "text", text: prompt }];
-  if (body.image?.data) {
-    content.push({
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: body.image.mediaType,
-        data: body.image.data
-      }
-    });
-  }
-
   // Temporary debug logging for image-diagnosis routing. Never logs the full
   // base64 payload \u2014 only its length so we can confirm it reached the API.
-  const hasImageBlock = content.some((b) => b.type === "image");
   console.log("[chat] imagePresent:", Boolean(body.image?.data));
   if (body.image?.data) {
     console.log("[chat] imageMediaType:", body.image.mediaType);
     console.log("[chat] base64Length:", body.image.data.length);
   }
   console.log("[chat] intent:", outputPlan.intent);
-  console.log("[chat] claudeContentIncludesImageBlock:", hasImageBlock);
 
   try {
     let imageDiagnosis: AgentResponse["imageDiagnosis"] | undefined;
@@ -454,24 +556,27 @@ export async function POST(request: Request) {
       imageDiagnosis = await analyzeUploadedImage(client, model, body.image.data, body.image.mediaType, question);
     }
 
-    const callClaude = (extraInstruction?: string) => {
-      const finalContent: Anthropic.MessageParam["content"] = extraInstruction
-        ? [{ type: "text", text: `${prompt}\n\nIMPORTANT: ${extraInstruction}` }, ...content.slice(1)]
-        : content;
-      return client.messages.create({
+    // Inject the pre-computed image diagnosis as text so the agent prompt
+    // (string-only) still has the visual interpretation when an image was
+    // attached. The raw image is consumed by analyzeUploadedImage above.
+    const promptWithDiagnosis = imageDiagnosis
+      ? `${prompt}\n\nPre-computed image diagnosis (from vision step):\n${JSON.stringify(imageDiagnosis)}`
+      : prompt;
+
+    const callAgent = async (extraInstruction?: string) => {
+      const finalPrompt = extraInstruction
+        ? `${promptWithDiagnosis}\n\nIMPORTANT: ${extraInstruction}`
+        : promptWithDiagnosis;
+      return runVulcanAgent({
+        prompt: finalPrompt,
+        systemPrompt,
         model,
-        max_tokens: 2000,
-        temperature: 0.2,
-        system: systemPrompt,
-        messages: [{ role: "user", content: finalContent }]
+        maxTurns: 6
       });
     };
 
-    let message = await callClaude();
-    let text = message.content
-      .filter((block): block is Anthropic.TextBlock => block.type === "text")
-      .map((block) => block.text)
-      .join("\n");
+    let agentResult = await callAgent();
+    let text = agentResult.text;
     let parsedJson = extractJson(text);
     let answerText: string = typeof parsedJson?.answer === "string" ? parsedJson.answer : text;
 
@@ -479,19 +584,29 @@ export async function POST(request: Request) {
     // for what should be a specific question, retry once with a corrective
     // instruction.
     if (isGenericMultiProcessAnswer(answerText) && outputPlan.intent !== "process_selection") {
-      message = await callClaude(
+      agentResult = await callAgent(
         "Answer only the specific question. Do not compare all processes. Stay focused on what the user actually asked."
       );
-      text = message.content
-        .filter((block): block is Anthropic.TextBlock => block.type === "text")
-        .map((block) => block.text)
-        .join("\n");
+      text = agentResult.text;
       parsedJson = extractJson(text);
       answerText = typeof parsedJson?.answer === "string" ? parsedJson.answer : text;
     }
 
     const parsed = AgentResponseSchema.partial().safeParse(parsedJson);
-    const response = normalizeAgentResponse(question, parsed.success ? parsed.data : undefined);
+    const partialData = parsed.success ? parsed.data : undefined;
+    // Preserve Claude's response when JSON parsing fails or the model omits
+    // "answer". Without this, normalizeAgentResponse falls back to
+    // localGroundedResponse, whose generic case ("Tell me what you are setting
+    // up or fixing...") leaks into the UI for any question that doesn't match
+    // a known visualType (e.g. "what is CTWD").
+    const claudeAnswer =
+      typeof partialData?.answer === "string" && partialData.answer.trim().length > 0
+        ? partialData.answer
+        : cleanProseAnswer(text);
+    const dataForNormalize: typeof partialData = claudeAnswer
+      ? { ...(partialData ?? {}), answer: claudeAnswer }
+      : partialData;
+    const response = normalizeAgentResponse(question, dataForNormalize);
     const linkedManual = indexedVisual ? manualImages.find((img) => img.src === indexedVisual.imagePath) : undefined;
     if (linkedManual && !response.manualImages?.length) {
       response.manualImages = [linkedManual];

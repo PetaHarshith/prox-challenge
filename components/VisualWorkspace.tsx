@@ -54,21 +54,21 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
   ];
 
   return (
-    <aside className="flex min-h-0 flex-col border-t border-white/70 bg-white/90 shadow-[-22px_0_70px_rgba(15,23,42,0.08)] backdrop-blur xl:border-l xl:border-t-0">
-      <div className="border-b border-slate-200/80 bg-white/70 px-4 py-3">
+    <aside className="flex h-full min-h-0 flex-col border-t border-black/[0.08] bg-[#F7F6F1] xl:border-l xl:border-t-0">
+      <div className="border-b border-black/[0.08] bg-[#F7F6F1] px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold text-slate-950">Visual workspace</h2>
-            <p className="text-xs text-slate-500">Diagrams, checklists, and calculators</p>
+            <h2 className="text-sm font-semibold text-text-primary">Visual workspace</h2>
+            <p className="text-xs text-text-secondary">Diagrams, checklists, and calculators</p>
           </div>
         </div>
-        <div className="mt-3 grid grid-cols-4 rounded-md bg-slate-100 p-1">
+        <div className="mt-3 grid grid-cols-4 rounded-lg border border-black/[0.08] bg-card p-1">
           {tabs.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setTab(item.id)}
-              className={`inline-flex h-8 items-center justify-center gap-1 rounded px-2 text-xs font-semibold ${tab === item.id ? "bg-white text-slate-950 shadow-sm" : "text-slate-500 hover:text-slate-950"
+              className={`inline-flex h-8 items-center justify-center gap-1 rounded-md px-2 text-xs font-medium transition ${tab === item.id ? "bg-[#171A1F] text-white" : "text-text-secondary hover:text-text-primary"
                 }`}
             >
               {item.icon}
@@ -99,7 +99,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
                 {response.visualType === "polarity" ? (
                   <WorkspaceSection title="Setup Diagram" refs={response.refs}>
                     {response.highlightContext?.emphasis ? (
-                      <div className="rounded-md border border-torch/30 bg-orange-50 px-3 py-2 text-xs font-semibold text-orange-900">
+                      <div className="rounded-lg border border-black/[0.08] bg-card-soft px-3 py-2 text-xs font-medium text-text-primary">
                         {response.highlightContext.emphasis}
                       </div>
                     ) : null}
@@ -128,7 +128,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
                   </WorkspaceSection>
                 ) : null}
                 {response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length) ? (
-                  <WorkspaceSection title="Troubleshooting Path" refs={response.refs}>
+                  <WorkspaceSection title="Fix it step-by-step" refs={response.refs}>
                     <TroubleshootingFlow
                       steps={response.checklist}
                       items={response.troubleshootingItems}
@@ -167,7 +167,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
             <select
               value={process}
               onChange={(event) => setProcess(event.target.value as Exclude<WeldProcess, "unknown">)}
-              className="h-10 w-full rounded-md border border-zinc-300 bg-white px-3 text-sm"
+              className="h-10 w-full rounded-xl border border-black/[0.08] bg-card-soft px-3 text-sm text-text-primary outline-none"
             >
               {processes.map((item) => (
                 <option key={item} value={item}>
@@ -187,12 +187,12 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
               <select
                 value={dutyVoltage}
                 onChange={(event) => setDutyVoltage(event.target.value as "120V" | "240V")}
-                className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm"
+                className="h-10 rounded-xl border border-black/[0.08] bg-card-soft px-3 text-sm text-text-primary outline-none"
               >
                 <option value="120V">120V input</option>
                 <option value="240V">240V input</option>
               </select>
-              <div className="flex h-10 min-w-16 items-center justify-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white">
+              <div className="flex h-10 min-w-16 items-center justify-center rounded-xl bg-brass px-3 text-sm font-semibold text-text-primary">
                 {amperage}A
               </div>
             </div>
@@ -203,9 +203,9 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
               step={5}
               value={amperage}
               onChange={(event) => setAmperage(Number(event.target.value))}
-              className="w-full accent-torch"
+              className="w-full accent-brass"
             />
-            <div className="rounded-md bg-zinc-100 p-3 text-sm leading-6 text-zinc-800">
+            <div className="rounded-xl border border-black/[0.08] bg-card-soft p-3 text-sm leading-6 text-text-secondary">
               Closest manual rating: <strong>{duty.input}</strong> at <strong>{duty.amperage}</strong> is{" "}
               <strong>{duty.dutyCycle}</strong>. Weld <strong>{duty.weldMinutes} min</strong>, rest{" "}
               <strong>{duty.restMinutes} min</strong> per 10 minutes.
@@ -226,7 +226,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
               <select
                 value={material}
                 onChange={(event) => setMaterial(event.target.value as (typeof materials)[number])}
-                className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm"
+                className="h-10 rounded-xl border border-black/[0.08] bg-card-soft px-3 text-sm text-text-primary outline-none"
               >
                 {materials.map((item) => (
                   <option key={item} value={item}>
@@ -237,7 +237,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
               <select
                 value={thickness}
                 onChange={(event) => setThickness(event.target.value as (typeof thicknesses)[number])}
-                className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm"
+                className="h-10 rounded-xl border border-black/[0.08] bg-card-soft px-3 text-sm text-text-primary outline-none"
               >
                 {thicknesses.map((item) => (
                   <option key={item} value={item}>
@@ -248,7 +248,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
               <select
                 value={settingsVoltage}
                 onChange={(event) => setSettingsVoltage(event.target.value as "120V" | "240V")}
-                className="h-10 rounded-md border border-zinc-300 bg-white px-3 text-sm"
+                className="h-10 rounded-xl border border-black/[0.08] bg-card-soft px-3 text-sm text-text-primary outline-none"
               >
                 <option value="120V">120V input</option>
                 <option value="240V">240V input</option>
@@ -268,7 +268,7 @@ function WorkspaceSection({ children, refs, title }: { children: ReactNode; refs
   return (
     <section className="space-y-3">
       <div className="flex items-end justify-between gap-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">{title}</h3>
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-secondary">{title}</h3>
       </div>
       {children}
       {refs?.length ? <SourceSummary refs={refs} /> : null}
@@ -278,11 +278,11 @@ function WorkspaceSection({ children, refs, title }: { children: ReactNode; refs
 
 function SourceSummary({ refs }: { refs: ManualRef[] }) {
   return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
-      <span className="font-semibold text-slate-800">Sources: </span>
+    <div className="rounded-lg border border-black/[0.08] bg-card px-3 py-2 text-xs leading-5 text-text-secondary">
+      <span className="font-medium text-text-primary">Sources: </span>
       {refs.map((ref, index) => (
         <span key={`${ref.source}-${ref.title}`}>
-          <a href={ref.url} target="_blank" rel="noreferrer" className="font-medium text-slate-700 underline decoration-slate-300 underline-offset-2">
+          <a href={ref.url} target="_blank" rel="noreferrer" className="font-medium text-text-primary underline decoration-white/20 underline-offset-2 hover:text-text-primary">
             {ref.source}
             {ref.page ? ` p.${ref.page}` : ""}
           </a>
@@ -295,16 +295,16 @@ function SourceSummary({ refs }: { refs: ManualRef[] }) {
 
 function EmptyWorkspace() {
   return (
-    <div className="rounded-lg border border-slate-200 bg-gradient-to-br from-white to-slate-50 p-4 shadow-sm">
+    <div className="rounded-xl border border-black/[0.08] bg-card p-4 shadow-panel">
       <div className="mb-2 flex items-center gap-2">
-        <Gauge size={17} className="text-torch" />
-        <h3 className="text-sm font-semibold text-slate-950">Workspace preview</h3>
+        <Gauge size={17} className="text-acid" />
+        <h3 className="text-sm font-semibold text-text-primary">Workspace preview</h3>
       </div>
-      <p className="text-sm leading-6 text-slate-700">
+      <p className="text-sm leading-6 text-text-secondary">
         Ask a setup, duty-cycle, troubleshooting, or settings question to render the matching diagram, manual page, checklist,
         or calculator here.
       </p>
-      <p className="mt-3 text-xs leading-5 text-slate-500">
+      <p className="mt-3 text-xs leading-5 text-text-secondary">
         This panel follows the chat and updates when the assistant returns visual or tabular guidance.
       </p>
     </div>
@@ -313,13 +313,11 @@ function EmptyWorkspace() {
 
 function LoadingWorkspace() {
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-orange-100 bg-white/90 p-4 text-sm text-slate-700 shadow-sm">
-      <div className="relative h-8 w-8 shrink-0 rounded-full bg-orange-50">
-        <div className="absolute inset-1 rounded-full border-2 border-orange-200" />
-        <div className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full bg-torch" />
-        <Loader2 size={18} className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 animate-spin text-torch" />
+    <div className="flex min-h-[360px] items-center justify-center">
+      <div className="flex items-center gap-3 rounded-xl border border-black/[0.08] bg-card px-4 py-3 text-sm text-text-secondary shadow-panel">
+        <Loader2 size={17} className="animate-spin text-text-primary" />
+        <span>Preparing visual...</span>
       </div>
-      Drawing the right visual...
     </div>
   );
 }
@@ -358,7 +356,7 @@ function VisualSpecRenderer({
   }
   if (spec.kind === "troubleshooting_flow") {
     return (
-      <WorkspaceSection title="Troubleshooting Path" refs={refs}>
+      <WorkspaceSection title="Fix it step-by-step" refs={refs}>
         <TroubleshootingFlow steps={spec.checklist} items={spec.items} symptom={spec.symptom ?? userQuestion} />
       </WorkspaceSection>
     );
@@ -419,9 +417,9 @@ function InteractiveDutyCycle({ rows, initialKey }: { rows: typeof dutyCycleRows
 
   return (
     <div className="space-y-3">
-      <div className="rounded-lg border border-zinc-200 bg-white p-3">
+      <div className="rounded-xl border border-black/[0.08] bg-card p-3">
         <div className="mb-2 flex items-center justify-between gap-2">
-          <div className="inline-flex rounded-md bg-zinc-100 p-1">
+          <div className="inline-flex rounded-lg border border-black/[0.08] bg-card-soft p-1">
             {(["120V", "240V"] as const).map((v) => (
               <button
                 key={v}
@@ -430,13 +428,13 @@ function InteractiveDutyCycle({ rows, initialKey }: { rows: typeof dutyCycleRows
                   setVoltage(v);
                   if (v === "120V" && amps > 140) setAmps(140);
                 }}
-                className={`h-7 rounded px-2.5 text-xs font-semibold ${voltage === v ? "bg-white text-zinc-950 shadow-sm" : "text-zinc-500"}`}
+                className={`h-7 rounded-md px-2.5 text-xs font-medium ${voltage === v ? "bg-white text-text-primary" : "text-text-secondary"}`}
               >
                 {v} input
               </button>
             ))}
           </div>
-          <div className="flex h-8 min-w-16 items-center justify-center rounded-md bg-zinc-950 px-3 text-sm font-semibold text-white">
+          <div className="flex h-8 min-w-16 items-center justify-center rounded-lg bg-[#171A1F] px-3 text-sm font-semibold text-text-primary">
             {amps}A
           </div>
         </div>
@@ -447,13 +445,13 @@ function InteractiveDutyCycle({ rows, initialKey }: { rows: typeof dutyCycleRows
           step={5}
           value={amps}
           onChange={(event) => setAmps(Number(event.target.value))}
-          className="w-full accent-torch"
+          className="w-full accent-brass"
         />
-        <div className="mt-2 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+        <div className="mt-2 flex justify-between text-[10px] font-medium uppercase tracking-wide text-text-secondary">
           <span>{min}A</span>
           <span>{max}A</span>
         </div>
-        <div className="mt-2 rounded-md bg-orange-50 px-3 py-2 text-sm leading-6 text-orange-900">
+        <div className="mt-2 rounded-lg border border-black/[0.08] bg-card-soft px-3 py-2 text-sm leading-6 text-text-primary">
           At <strong>{duty.amperage}</strong> on <strong>{duty.input}</strong>: weld{" "}
           <strong>{duty.weldMinutes} min</strong>, rest <strong>{duty.restMinutes} min</strong>{" "}
           (<strong>{duty.dutyCycle}</strong> duty cycle).

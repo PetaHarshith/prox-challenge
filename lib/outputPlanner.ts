@@ -78,13 +78,13 @@ const DUTY_RE =
   /\bduty\b|\bweld continuously\b|\bcontinuously at\b|\boverheat(?:ing)?\b|\bthermal shutdown\b|\b\d{2,3}\s*a(?:mp(?:s|erage)?)?\b/;
 
 const TROUBLE_RE =
-  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bproblem\b|\bwrong\b|\bbird.?nest\b|\bburn[- ]through\b|\bdefect\b|\bunstable arc\b|\bcraters?\b|\bholes? in\b|\bweld(?:s)? (?:has|have|look|looks|seems?|are)\b/;
+  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bproblem\b|\bwrong\b|\bbird.?nest\b|\bburn[- ]through\b|\bdefect\b|\bunstable arc\b|\bcraters?\b|\bholes? in\b|\bbubbles?\b|\bslipping\b|\bno arc\b|\bwon'?t arc\b|\bweak weld\b|\bweld(?:s)? (?:has|have|look|looks|seems?|are)\b/;
 
 // Specific defect nouns. Used to tell apart a real troubleshooting question
 // ("my welds have pinholes") from a vague one ("my weld looks bad") that
 // cannot be answered without knowing what the user actually sees.
 const SPECIFIC_DEFECT_RE =
-  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bbird.?nest\b|\bburn[- ]through\b|\bcraters?\b|\bundercut\b|\bcracking\b|\bcracks?\b|\bunstable arc\b|\bholes? in\b|\bdrop[- ]?through\b|\bwavy\b|\btoo (?:hot|cold)\b|\bwon'?t stick\b/;
+  /\bporosity\b|\bporous\b|\bpinholes?\b|\bspatter\b|\bbird.?nest\b|\bburn[- ]through\b|\bcraters?\b|\bundercut\b|\bcracking\b|\bcracks?\b|\bunstable arc\b|\bholes? in\b|\bbubbles?\b|\bslipping\b|\bno arc\b|\bwon'?t arc\b|\bweak weld\b|\bdrop[- ]?through\b|\bwavy\b|\btoo (?:hot|cold)\b|\bwon'?t stick\b/;
 
 // Vague trouble phrasing on its own (no defect noun). Examples: "my weld
 // looks bad", "something is wrong with my weld", "weld doesn't look right".

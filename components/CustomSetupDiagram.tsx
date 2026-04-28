@@ -23,8 +23,8 @@ function configFor(process: Exclude<WeldProcess, "unknown">) {
       badge: "No gas required",
       warning: undefined,
       lines: [
-        { label: "Ground clamp", color: "#16a34a", from: { x: 112, y: 118 }, to: "positive", active: true },
-        { label: "Wire feed / MIG gun", color: "#2563eb", from: { x: 112, y: 310 }, to: "negative", active: true }
+        { label: "Ground clamp", color: "#4fb078", from: { x: 112, y: 118 }, to: "positive", active: true },
+        { label: "Wire feed / MIG gun", color: "#394150", from: { x: 112, y: 310 }, to: "negative", active: true }
       ] satisfies DiagramLine[]
     };
   }
@@ -35,9 +35,9 @@ function configFor(process: Exclude<WeldProcess, "unknown">) {
       badge: "Gas required",
       warning: undefined,
       lines: [
-        { label: "Ground clamp", color: "#16a34a", from: { x: 112, y: 310 }, to: "negative", active: true },
-        { label: "Wire feed / MIG gun", color: "#2563eb", from: { x: 112, y: 118 }, to: "positive", active: true },
-        { label: "Gas line to regulator", color: "#6b7280", from: { x: 624, y: 92 }, to: "gas", active: true }
+        { label: "Ground clamp", color: "#4fb078", from: { x: 112, y: 310 }, to: "negative", active: true },
+        { label: "Wire feed / MIG gun", color: "#394150", from: { x: 112, y: 118 }, to: "positive", active: true },
+        { label: "Gas line to regulator", color: "#8f9b94", from: { x: 624, y: 92 }, to: "gas", active: true }
       ] satisfies DiagramLine[]
     };
   }
@@ -48,10 +48,10 @@ function configFor(process: Exclude<WeldProcess, "unknown">) {
       badge: "Gas + foot pedal",
       warning: "Do not connect wire feed cable during TIG",
       lines: [
-        { label: "Ground clamp", color: "#16a34a", from: { x: 112, y: 118 }, to: "positive", active: true },
-        { label: "TIG torch", color: "#7c3aed", from: { x: 112, y: 310 }, to: "negative", active: true },
-        { label: "Gas line to regulator", color: "#6b7280", from: { x: 624, y: 92 }, to: "gas", active: true },
-        { label: "Foot pedal", color: "#6b7280", from: { x: 624, y: 338 }, to: "foot", active: true }
+        { label: "Ground clamp", color: "#4fb078", from: { x: 112, y: 118 }, to: "positive", active: true },
+        { label: "TIG torch", color: "#9b7bd4", from: { x: 112, y: 310 }, to: "negative", active: true },
+        { label: "Gas line to regulator", color: "#8f9b94", from: { x: 624, y: 92 }, to: "gas", active: true },
+        { label: "Foot pedal", color: "#8f9b94", from: { x: 624, y: 338 }, to: "foot", active: true }
       ] satisfies DiagramLine[]
     };
   }
@@ -61,8 +61,8 @@ function configFor(process: Exclude<WeldProcess, "unknown">) {
     badge: "SMAW",
     warning: "Wire feed disconnected",
     lines: [
-      { label: "Ground clamp", color: "#16a34a", from: { x: 112, y: 310 }, to: "negative", active: true },
-      { label: "Electrode holder", color: "#f97316", from: { x: 112, y: 118 }, to: "positive", active: true }
+      { label: "Ground clamp", color: "#4fb078", from: { x: 112, y: 310 }, to: "negative", active: true },
+        { label: "Electrode holder", color: "#B7F54A", from: { x: 112, y: 118 }, to: "positive", active: true }
     ] satisfies DiagramLine[]
   };
 }
@@ -75,17 +75,17 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
   const secondaryPolarity = process === "stick" ? "+" : "−";
 
   return (
-    <section className="rounded-lg border border-slate-200 bg-gradient-to-br from-white via-slate-50 to-orange-50/40 p-5 shadow-sm">
+    <section className="rounded-xl border border-black/[0.08] bg-card p-5 shadow-none">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-base font-semibold text-slate-950">{config.title}</h3>
-          <p className="text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-text-primary">{config.title}</h3>
+          <p className="text-sm text-text-secondary">
             Positive: {setup.positive}. Negative: {setup.negative}.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <span className="rounded-full bg-slate-900 px-3 py-1 text-xs font-semibold text-white">{config.badge}</span>
-          {config.warning ? <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-900">{config.warning}</span> : null}
+          <span className="rounded-full border border-brass/30 bg-brass px-3 py-1 text-xs font-semibold text-text-primary">{config.badge}</span>
+          {config.warning ? <span className="rounded-full border border-brass/25 bg-brass/10 px-3 py-1 text-xs font-semibold text-brass">{config.warning}</span> : null}
         </div>
       </div>
 
@@ -95,16 +95,16 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
             <feDropShadow dx="0" dy="8" stdDeviation="10" floodOpacity="0.12" />
           </filter>
           <filter id="socketGlow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="0" dy="0" stdDeviation="6" floodColor="#f97316" floodOpacity="0.6" />
+            <feDropShadow dx="0" dy="0" stdDeviation="5" floodColor="#B7F54A" floodOpacity="0.42" />
           </filter>
         </defs>
 
-        <rect x="252" y="72" width="272" height="248" rx="18" fill="#18181b" filter="url(#softShadow)" />
-        <rect x="284" y="104" width="208" height="72" rx="8" fill="#f4f4f5" />
-        <text x="388" y="132" textAnchor="middle" fontSize="20" fontWeight="800" fill="#18181b">
+        <rect x="252" y="72" width="272" height="248" rx="18" fill="#17171c" filter="url(#softShadow)" />
+        <rect x="284" y="104" width="208" height="72" rx="8" fill="#f5f0e6" />
+        <text x="388" y="132" textAnchor="middle" fontSize="20" fontWeight="800" fill="#17171c">
           Vulcan
         </text>
-        <text x="388" y="156" textAnchor="middle" fontSize="18" fontWeight="700" fill="#18181b">
+        <text x="388" y="156" textAnchor="middle" fontSize="18" fontWeight="700" fill="#17171c">
           OmniPro 220
         </text>
 
@@ -112,8 +112,8 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
           cx={socketPoints.negative.x}
           cy={socketPoints.negative.y}
           r="33"
-          fill="#f4f4f5"
-          stroke={setup.negative.toLowerCase().includes("ground") || setup.negative.toLowerCase().includes("torch") ? "#f97316" : "#d4d4d8"}
+          fill="#f5f0e6"
+          stroke={setup.negative.toLowerCase().includes("ground") || setup.negative.toLowerCase().includes("torch") ? "#B7F54A" : "#a4aaa3"}
           strokeWidth={setup.negative.toLowerCase().includes("ground") || setup.negative.toLowerCase().includes("torch") ? "6" : "4"}
           filter={setup.negative.toLowerCase().includes("ground") || setup.negative.toLowerCase().includes("torch") ? "url(#socketGlow)" : undefined}
         />
@@ -121,34 +121,34 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
           cx={socketPoints.positive.x}
           cy={socketPoints.positive.y}
           r="33"
-          fill="#fff1f2"
-          stroke={setup.positive.toLowerCase().includes("ground") || setup.positive.toLowerCase().includes("electrode") || setup.positive.toLowerCase().includes("wire") ? "#f97316" : "#fecaca"}
+          fill="#fff7e6"
+          stroke={setup.positive.toLowerCase().includes("ground") || setup.positive.toLowerCase().includes("electrode") || setup.positive.toLowerCase().includes("wire") ? "#B7F54A" : "#D8F99B"}
           strokeWidth={setup.positive.toLowerCase().includes("ground") || setup.positive.toLowerCase().includes("electrode") || setup.positive.toLowerCase().includes("wire") ? "6" : "4"}
           filter={setup.positive.toLowerCase().includes("ground") || setup.positive.toLowerCase().includes("electrode") || setup.positive.toLowerCase().includes("wire") ? "url(#socketGlow)" : undefined}
         />
-        <text x={socketPoints.negative.x} y="300" textAnchor="middle" fontSize="24" fontWeight="900" fill="#18181b">
+        <text x={socketPoints.negative.x} y="300" textAnchor="middle" fontSize="24" fontWeight="900" fill="#17171c">
           -
         </text>
-        <text x={socketPoints.positive.x} y="300" textAnchor="middle" fontSize="24" fontWeight="900" fill="#b91c1c">
+        <text x={socketPoints.positive.x} y="300" textAnchor="middle" fontSize="24" fontWeight="900" fill="#a94d2d">
           +
         </text>
-        <text x={socketPoints.negative.x} y="350" textAnchor="middle" fontSize="13" fontWeight="700" fill="#52525b">
+        <text x={socketPoints.negative.x} y="350" textAnchor="middle" fontSize="13" fontWeight="700" fill="#8f9b94">
           Negative
         </text>
-        <text x={socketPoints.positive.x} y="350" textAnchor="middle" fontSize="13" fontWeight="700" fill="#b91c1c">
+        <text x={socketPoints.positive.x} y="350" textAnchor="middle" fontSize="13" fontWeight="700" fill="#e67a4c">
           Positive
         </text>
 
-        <rect x="572" y="142" width="104" height="80" rx="12" fill="#f4f4f5" stroke="#d4d4d8" opacity={config.lines.some((line) => line.to === "gas") ? 1 : 0.35} />
-        <text x="624" y="174" textAnchor="middle" fontSize="13" fontWeight="800" fill="#52525b">
+        <rect x="572" y="142" width="104" height="80" rx="12" fill="#f5f0e6" stroke="#a4aaa3" opacity={config.lines.some((line) => line.to === "gas") ? 1 : 0.35} />
+        <text x="624" y="174" textAnchor="middle" fontSize="13" fontWeight="800" fill="#4f5652">
           Regulator
         </text>
-        <text x="624" y="195" textAnchor="middle" fontSize="12" fill="#71717a">
+        <text x="624" y="195" textAnchor="middle" fontSize="12" fill="#6c746f">
           gas
         </text>
 
-        <rect x="570" y="300" width="108" height="56" rx="12" fill="#f4f4f5" stroke="#d4d4d8" opacity={config.lines.some((line) => line.to === "foot") ? 1 : 0.35} />
-        <text x="624" y="333" textAnchor="middle" fontSize="13" fontWeight="800" fill="#52525b">
+        <rect x="570" y="300" width="108" height="56" rx="12" fill="#f5f0e6" stroke="#a4aaa3" opacity={config.lines.some((line) => line.to === "foot") ? 1 : 0.35} />
+        <text x="624" y="333" textAnchor="middle" fontSize="13" fontWeight="800" fill="#4f5652">
           Foot pedal
         </text>
 
@@ -165,8 +165,8 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
                 opacity={line.active ? 1 : 0.25}
               />
               <circle cx={target.x} cy={target.y} r="6" fill={line.color} opacity={line.active ? 1 : 0.25} />
-              <rect x={line.from.x - 68} y={line.from.y - 26} width="168" height="52" rx="12" fill="white" stroke={line.color} strokeWidth={line.active ? "3" : "2"} opacity={line.active ? 1 : 0.5} />
-              <text x={line.from.x + 16} y={line.from.y + 5} textAnchor="middle" fontSize="14" fontWeight="800" fill="#18181b">
+              <rect x={line.from.x - 68} y={line.from.y - 26} width="168" height="52" rx="12" fill="#f5f0e6" stroke={line.color} strokeWidth={line.active ? "3" : "2"} opacity={line.active ? 1 : 0.5} />
+              <text x={line.from.x + 16} y={line.from.y + 5} textAnchor="middle" fontSize="14" fontWeight="800" fill="#17171c">
                 {line.label}
               </text>
             </g>
@@ -175,18 +175,18 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
 
         {(process === "tig" || process === "stick") ? (
           <g>
-            <line x1="112" y1="205" x2="245" y2="205" stroke="#dc2626" strokeWidth="3" strokeDasharray="6 6" />
-            <text x="114" y="194" textAnchor="start" fontSize="12" fontWeight="700" fill="#dc2626">
+            <line x1="112" y1="205" x2="245" y2="205" stroke="#e67a4c" strokeWidth="3" strokeDasharray="6 6" />
+            <text x="114" y="194" textAnchor="start" fontSize="12" fontWeight="700" fill="#e67a4c">
               Wire feed: disconnected
             </text>
           </g>
         ) : null}
       </svg>
 
-      <div className="mt-4 space-y-2 rounded-md border border-slate-200 bg-white/80 p-3 text-xs font-medium text-slate-700">
+      <div className="mt-4 space-y-2 rounded-xl border border-black/[0.08] bg-card-soft p-3 text-xs font-medium text-text-secondary">
         <p><strong>Ground</strong> → {setup.positive.toLowerCase().includes("ground") ? "+" : "−"}</p>
         <p><strong>{secondaryConnectorLabel}</strong> → {secondaryPolarity}</p>
-        {config.warning ? <p className="text-amber-700">{config.warning}</p> : null}
+        {config.warning ? <p className="text-brass">{config.warning}</p> : null}
       </div>
     </section>
   );

@@ -11,9 +11,9 @@ export function MarkdownContent({ content }: { content: string }) {
                     ol: ({ children }) => <ol className="ml-4 list-decimal space-y-1">{children}</ol>,
                     ul: ({ children }) => <ul className="ml-4 list-disc space-y-1">{children}</ul>,
                     li: ({ children }) => <li>{children}</li>,
-                    code: ({ children }) => <code className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-xs">{children}</code>,
+                    code: ({ children }) => <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-xs text-text-primary">{children}</code>,
                     a: ({ href, children }) => (
-                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-torch hover:underline">
+                        <a href={href} target="_blank" rel="noopener noreferrer" className="text-acid hover:underline">
                             {children}
                         </a>
                     )

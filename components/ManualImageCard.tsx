@@ -6,32 +6,32 @@ export function ManualImageCard({ image, interpretation }: { image: ManualImage;
   const isPdf = image.src.endsWith(".pdf");
 
   return (
-    <section className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4">
-      <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-        <h4 className="text-xs font-bold uppercase tracking-wide text-zinc-600">Supporting reference</h4>
-        <p className="mt-1 text-xs text-zinc-500">{image.title}</p>
+    <section className="space-y-4 rounded-xl border border-black/[0.08] bg-card p-4 shadow-none">
+      <div className="rounded-xl border border-black/[0.08] bg-card p-3">
+        <h4 className="text-xs font-bold uppercase tracking-wide text-text-secondary">Supporting reference</h4>
+        <p className="mt-1 text-xs text-text-secondary">{image.title}</p>
       </div>
 
       {interpretation ? (
-        <div className="space-y-2 rounded-lg border border-torch/30 bg-orange-50 p-3 text-xs leading-5 text-zinc-800">
+        <div className="space-y-2 rounded-xl border border-brass/25 bg-brass/10 p-3 text-xs leading-5 text-text-primary">
           <div>
-            <span className="font-bold uppercase tracking-wide text-torch">What it shows</span>
+            <span className="font-bold uppercase tracking-wide text-brass">What it shows</span>
             <p className="mt-0.5">{interpretation.whatItShows}</p>
           </div>
           <div>
-            <span className="font-bold uppercase tracking-wide text-torch">Why it matters</span>
+            <span className="font-bold uppercase tracking-wide text-brass">Why it matters</span>
             <p className="mt-0.5">{interpretation.whyItMatters}</p>
           </div>
           <div>
-            <span className="font-bold uppercase tracking-wide text-torch">What to check</span>
+            <span className="font-bold uppercase tracking-wide text-brass">What to check</span>
             <p className="mt-0.5">{interpretation.whatToCheck}</p>
           </div>
         </div>
       ) : null}
 
-      <div className="relative overflow-hidden rounded-lg border border-zinc-200 bg-zinc-50">
+      <div className="relative overflow-hidden rounded-xl border border-black/[0.08] bg-card-soft">
         {isPdf ? (
-          <div className="h-72 bg-zinc-100">
+          <div className="h-72 bg-card-soft">
             <iframe src={image.src} title={image.title} className="h-full w-full border-0" />
           </div>
         ) : (
@@ -40,11 +40,11 @@ export function ManualImageCard({ image, interpretation }: { image: ManualImage;
       </div>
 
       {image.guide.secondaryNotes && image.guide.secondaryNotes.length > 0 && (
-        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3">
-          <h4 className="text-xs font-bold uppercase tracking-wide text-zinc-600">Reference notes</h4>
+        <div className="rounded-xl border border-black/[0.08] bg-card p-3">
+          <h4 className="text-xs font-bold uppercase tracking-wide text-text-secondary">Reference notes</h4>
           <ul className="mt-2 space-y-1">
             {image.guide.secondaryNotes.map((note, idx) => (
-              <li key={idx} className="text-xs leading-5 text-zinc-600">
+              <li key={idx} className="text-xs leading-5 text-text-secondary">
                 • {note}
               </li>
             ))}

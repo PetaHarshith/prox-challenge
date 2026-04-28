@@ -40,7 +40,7 @@ export function ImageCallout({ text, position, direction, delayMs = 0, targetPos
                         y1="0%"
                         x2={`${(targetPosition.x - position.x) * 100}%`}
                         y2={`${(targetPosition.y - position.y) * 100}%`}
-                        stroke="rgba(233, 84, 32, 0.4)"
+                        stroke="rgba(183, 245, 74, 0.35)"
                         strokeWidth="1.5"
                         vectorEffect="non-scaling-stroke"
                     />
@@ -48,7 +48,7 @@ export function ImageCallout({ text, position, direction, delayMs = 0, targetPos
             )}
             <div className="relative" style={{ transform: bubbleTransform }}>
                 <div
-                    className="relative max-w-[160px] rounded-xl border-2 border-torch/90 bg-white shadow-[0_12px_32px_rgba(233,84,32,0.24)] backdrop-blur-sm [animation:callout-in_220ms_cubic-bezier(0.22,1,0.36,1)_both]"
+                    className="relative max-w-[160px] rounded-xl border border-torch/70 bg-white backdrop-blur-sm [animation:callout-in_220ms_cubic-bezier(0.22,1,0.36,1)_both]"
                     style={{
                         animationDelay: `${delayMs}ms`,
                         backgroundColor: "rgba(255, 255, 255, 0.95)"
@@ -91,8 +91,8 @@ function ArrowPointer(
             >
                 <path
                     d={arrowStyles.path}
-                    fill="rgba(233, 84, 32, 0.9)"
-                    stroke="rgba(233, 84, 32, 0.9)"
+                    fill="rgba(183, 245, 74, 0.9)"
+                    stroke="rgba(183, 245, 74, 0.9)"
                     strokeWidth="0.5"
                 />
             </svg>

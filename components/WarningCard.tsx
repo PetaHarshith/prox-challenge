@@ -10,12 +10,12 @@ export function WarningCard({ warnings }: { warnings: SmartWarning[] }) {
         return (
           <div
             key={w.id}
-            className={`flex items-start gap-2 rounded-md border px-3 py-2 text-sm leading-5 shadow-sm ${isWarn ? "border-amber-300 bg-gradient-to-r from-amber-50 to-orange-50 text-amber-950" : "border-sky-200 bg-gradient-to-r from-sky-50 to-cyan-50 text-sky-950"}`}
+            className={`flex items-start gap-2 rounded-xl border px-3 py-2 text-sm leading-5 shadow-none ${isWarn ? "border-ember/30 bg-ember/10 text-text-primary" : "border-sky-300/25 bg-sky-400/10 text-text-primary"}`}
           >
             {isWarn ? (
-              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-amber-700" />
+              <AlertTriangle size={16} className="mt-0.5 shrink-0 text-ember" />
             ) : (
-              <Info size={16} className="mt-0.5 shrink-0 text-blue-700" />
+              <Info size={16} className="mt-0.5 shrink-0 text-sky-300" />
             )}
             <span>{w.text}</span>
           </div>
