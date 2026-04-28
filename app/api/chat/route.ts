@@ -25,7 +25,6 @@ import {
   weldDiagnosisKnowledge
 } from "@/lib/manualVisualKnowledge";
 import { detectSmartWarnings } from "@/lib/smartWarnings";
-import { buildTroubleshootingMermaid } from "@/lib/troubleshootingMermaid";
 import { runVulcanAgent, vulcanAgentToolNames } from "@/lib/vulcanAgent";
 
 export const runtime = "nodejs";
@@ -66,16 +65,6 @@ const systemPrompt = [
   "- If no grounded manual visual exists for the request, say so clearly instead of inventing one.",
   "- An interactive troubleshooting flow and pre-weld checklist render inline below your prose in the chat bubble. When one is attached, keep prose to a maximum of 2 short sentences (diagnosis or context only) and let the checklist carry the steps. Do NOT restate, summarize, paraphrase, or preview the checklist items in prose. Never write phrases like 'follow these steps', 'here is the procedure', or numbered lists when a checklist is attached.",
   "- MULTI-PROCESS COMPARE: when the user asks about (or names) 2+ welding processes (e.g. 'explain flux core and tig', 'show me all four setups', 'compare MIG and stick'), a comparison table AND per-process pre-weld checklists render inline below your prose. In this case the `answer` field MUST be a markdown bullet list \u2014 one bullet per named process, in the order they were named, each bullet 1\u20132 short lines describing ONLY identity and use-case (what the process is and when to reach for it: indoor vs outdoor, materials, skill level, gas vs gasless). Bullet format: `- **MIG**: ...one or two short sentences...`. Example for two processes: `- **Flux-core**: Gasless and built for outdoor or drafty work on dirty mild steel.\\n- **TIG**: Precision process for thin steel, stainless, or aluminum indoors where bead appearance matters.` STRICT: do NOT mention sockets, polarity (positive/negative/+/\u2212), cable destinations, ground clamp routing, wire feed routing, electrode holder routing, gas pressure, CFH, or pre-weld steps in any bullet \u2014 every one of those facts is already in the table and checklists below your prose. No intro sentence, no closing tip, no headings \u2014 bullets only.",
-  "",
-  "ARTIFACTS (optional Mermaid diagram):",
-  "- ONLY include the optional `artifact` field when the user's latest message literally contains one of these trigger phrases (case-insensitive): \"flow\", \"flowchart\", \"decision tree\", \"diagram the steps\", or \"troubleshooting flow\". For every other question, omit `artifact` entirely.",
-  "- Use `flowchart TD` only. Keep it small and scannable: 4\u20137 nodes max, short labels (\u2264 4 words), no long sentences.",
-  "- When the trigger is \"troubleshooting flow\", \"decision tree\", or any troubleshooting/diagnosis question, the diagram MUST be a branching decision flow: use diamond-shaped decision nodes (`B{Is the gas on?}`) with TWO outgoing edges labeled with the literal words `Yes` and `No` (e.g. `B -->|Yes| C` and `B -->|No| D`). Do NOT produce a single linear chain for troubleshooting \u2014 every check should branch into a Yes path and a No path.",
-  "- For setup/process flows (\"diagram the steps\", \"flowchart for MIG setup\"), a linear chain of rectangular steps is fine; add Yes/No branches only when there's a real decision (e.g. \"Gas connected?\").",
-  "- Always use the literal words `Yes` and `No` on decision edges (not `OK`/`Fail`, not `True`/`False`) so the renderer can color them green/red.",
-  "- Focus only on the user\u2019s exact problem \u2014 do not include unrelated steps.",
-  "- Do not explain the diagram in detail in prose; the 1\u20132 sentence answer stands on its own.",
-  "- Shape: { \"type\": \"mermaid\", \"content\": \"<valid mermaid flowchart TD ...>\" }. The content must be valid Mermaid syntax with no surrounding code fences."
 ].join("\n");
 
 // Detects the generic "Use MIG / TIG / flux-core" comparison block when the
@@ -392,19 +381,6 @@ Rules:
 
 function latestUserMessage(messages: ChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === "user")?.content.trim() ?? "";
-}
-
-// Deterministic gate for Mermaid artifacts. The model is instructed to only
-// emit `artifact` when the user's message contains one of these phrases, but
-// we enforce it server-side as well so a misbehaving response can never leak
-// a diagram for a question that didn't ask for one. Troubleshooting answers
-// are also allowed because the route DETERMINISTICALLY synthesizes a Yes/No
-// decision tree from troubleshootingItems for every defect question.
-const MERMAID_TRIGGERS = ["flowchart", "decision tree", "diagram the steps", "troubleshooting flow", "flow"];
-function userRequestedDiagram(question: string, intent?: PlannerIntent): boolean {
-  if (intent === "troubleshooting") return true;
-  const lower = question.toLowerCase();
-  return MERMAID_TRIGGERS.some((phrase) => lower.includes(phrase));
 }
 
 function extractJson(text: string) {
@@ -769,16 +745,6 @@ async function runChatPipeline(
     if (outputPlan.intent === "troubleshooting" && !localResponse.troubleshootingItems?.length) {
       localResponse.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
     }
-    if (
-      outputPlan.intent === "troubleshooting" &&
-      !localResponse.artifact &&
-      localResponse.troubleshootingItems?.length
-    ) {
-      const mermaid = buildTroubleshootingMermaid(localResponse.troubleshootingItems, question);
-      if (mermaid) {
-        localResponse.artifact = { type: "mermaid", content: mermaid };
-      }
-    }
     const localPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
     const localBaseVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
     const localWarnings = detectSmartWarnings(question, localResponse.process);
@@ -979,12 +945,6 @@ async function runChatPipeline(
       ? { ...(partialData ?? {}), answer: claudeAnswer }
       : partialData;
     const response = normalizeAgentResponse(question, dataForNormalize);
-    // Strip any model-emitted Mermaid artifact unless the user's question
-    // literally contained one of the trigger phrases. Belt-and-suspenders for
-    // the ARTIFACTS rule in the system prompt.
-    if (response.artifact && !userRequestedDiagram(question, outputPlan.intent)) {
-      delete response.artifact;
-    }
     const linkedManual = indexedVisual ? manualImages.find((img) => img.src === indexedVisual.imagePath) : undefined;
     if (linkedManual && !response.manualImages?.length) {
       response.manualImages = [linkedManual];
@@ -1019,20 +979,6 @@ async function runChatPipeline(
     }
     if (outputPlan.intent === "troubleshooting" && !response.troubleshootingItems?.length) {
       response.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
-    }
-    // Deterministic Yes/No troubleshooting flowchart. Built from the same
-    // troubleshootingItems the inline TroubleshootingFlow uses, so the user
-    // gets a guaranteed-grounded decision tree on every defect question
-    // without having to type "troubleshooting flow".
-    if (
-      outputPlan.intent === "troubleshooting" &&
-      !response.artifact &&
-      response.troubleshootingItems?.length
-    ) {
-      const mermaid = buildTroubleshootingMermaid(response.troubleshootingItems, question);
-      if (mermaid) {
-        response.artifact = { type: "mermaid", content: mermaid };
-      }
     }
     // Always rebuild the visuals[] from the live plan so the workspace cannot
     // carry a stale visual from a prior turn.
@@ -1073,16 +1019,6 @@ async function runChatPipeline(
     );
     if (outputPlan.intent === "troubleshooting" && !fallback.troubleshootingItems?.length) {
       fallback.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
-    }
-    if (
-      outputPlan.intent === "troubleshooting" &&
-      !fallback.artifact &&
-      fallback.troubleshootingItems?.length
-    ) {
-      const mermaid = buildTroubleshootingMermaid(fallback.troubleshootingItems, question);
-      if (mermaid) {
-        fallback.artifact = { type: "mermaid", content: mermaid };
-      }
     }
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
     sink.write({

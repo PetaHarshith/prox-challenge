@@ -1,5 +1,6 @@
 import { Gauge, Info } from "lucide-react";
 import type { SettingRecommendation } from "@/lib/manualKnowledge";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 export function SettingsRecommendationCard({ recommendation }: { recommendation: SettingRecommendation }) {
   return (
@@ -46,7 +47,7 @@ export function SettingsRecommendationCard({ recommendation }: { recommendation:
       {recommendation.caution ? (
         <div className="mt-3 flex gap-2 rounded-xl border border-acid/25 bg-acid/10 p-3 text-sm text-text-primary">
           <Info size={16} className="mt-0.5 shrink-0" />
-          <span>{recommendation.caution}</span>
+          <span>{stripInlineMarkdown(recommendation.caution)}</span>
         </div>
       ) : null}
     </section>

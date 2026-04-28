@@ -10,7 +10,6 @@ import { QuickSetupForm } from "@/components/QuickSetupForm";
 import { TroubleshootingFlow } from "@/components/TroubleshootingFlow";
 import { PreWeldChecklist } from "@/components/PreWeldChecklist";
 import { PreWeldChecklistPager, type PreWeldChecklistEntry } from "@/components/PreWeldChecklistPager";
-import { MermaidArtifact } from "@/components/MermaidArtifact";
 import { SetupComparisonTable } from "@/components/SetupComparisonTable";
 import { MicButton } from "@/components/MicButton";
 import { FaultCodeBrowser } from "@/components/FaultCodeBrowser";
@@ -20,6 +19,7 @@ import type { ConversationState } from "@/lib/conversationState";
 import type { CachedResponseData } from "@/lib/prebuiltAnswers";
 import { recommendFromAnswers, type QuickSetupAnswers } from "@/lib/quickSetup";
 import type { FaultCode } from "@/lib/faultCodes";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 type ChatTurn = {
   id: string;
@@ -658,10 +658,6 @@ export default function Home() {
                     : preWeldEntries.length === 0 && turn.role === "assistant" && !isStreamingThisTurn
                       ? pickPreWeldChecklist(turn.response)
                       : undefined;
-                const mermaidArtifact =
-                  turn.role === "assistant" && !isStreamingThisTurn && turn.response?.artifact?.type === "mermaid"
-                    ? turn.response.artifact
-                    : undefined;
                 const setupComparisonProcesses =
                   turn.role === "assistant" && !isStreamingThisTurn
                     ? pickSetupComparisonProcesses(turn.response)
@@ -719,21 +715,6 @@ export default function Home() {
                           />
                         </div>
                       ) : null}
-                      {mermaidArtifact ? (
-                        <div
-                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
-                          style={{
-                            animationDelay:
-                              troubleFlow && (preWeldSpec || preWeldEntries.length >= 2)
-                                ? "400ms"
-                                : troubleFlow || preWeldSpec || preWeldEntries.length >= 2
-                                  ? "260ms"
-                                  : "120ms"
-                          }}
-                        >
-                          <MermaidArtifact content={mermaidArtifact.content} />
-                        </div>
-                      ) : null}
                       {turn.faultCode ? (
                         <div
                           className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
@@ -758,7 +739,7 @@ export default function Home() {
                       {turn.response?.highlights?.warning ? (
                         <div className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-ember/35 bg-ember/10 px-2.5 py-1 text-xs font-medium text-ember">
                           <span aria-hidden>⚠</span>
-                          <span>{turn.response.highlights.warning}</span>
+                          <span>{stripInlineMarkdown(turn.response.highlights.warning)}</span>
                         </div>
                       ) : null}
                       {turn.response?.refs?.length && !turn.faultCode ? (
@@ -772,7 +753,7 @@ export default function Home() {
                           <p className="mt-1.5 leading-5 text-text-secondary">{turn.response.reasoning_summary}</p>
                         </details>
                       ) : null}
-                      {turn.response?.warning ? <p className="mt-3 text-xs text-ember">{turn.response.warning}</p> : null}
+                      {turn.response?.warning ? <p className="mt-3 text-xs text-ember">{stripInlineMarkdown(turn.response.warning)}</p> : null}
                       {turnHasVisuals && !isLatestAssistant ? (
                         <div className="mt-3">
                           <button

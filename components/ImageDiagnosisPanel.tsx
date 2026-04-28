@@ -1,4 +1,5 @@
 import { AlertTriangle, CheckCircle2, Camera } from "lucide-react";
+import { stripInlineMarkdown } from "@/lib/textFormat";
 
 export type ImageDiagnosis = {
   category: "weld_bead_defect" | "wiring_setup" | "front_panel" | "wire_feed" | "unknown";
@@ -66,7 +67,7 @@ export function ImageDiagnosisPanel({
       {diagnosis.caution ? (
         <div className="mt-3 flex items-start gap-2 rounded-xl border border-acid/25 bg-acid/10 p-3 text-sm text-text-primary">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
-          <span>{diagnosis.caution}</span>
+          <span>{stripInlineMarkdown(diagnosis.caution)}</span>
         </div>
       ) : null}
 

@@ -112,13 +112,6 @@ export const AgentResponseSchema = z.object({
     process: z.string().optional(),
     key_setting: z.string().optional(),
     warning: z.string().optional()
-  }).optional(),
-  // Optional Claude-generated artifact (e.g., a Mermaid flowchart) rendered
-  // inline below the prose. Purely additive: the planner/intent/visuals
-  // pipeline ignores it; the chat bubble mounts it after streaming finishes.
-  artifact: z.object({
-    type: z.literal("mermaid"),
-    content: z.string()
   }).optional()
 });
 
