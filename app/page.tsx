@@ -14,7 +14,7 @@ import { SetupComparisonTable } from "@/components/SetupComparisonTable";
 import { MicButton } from "@/components/MicButton";
 import { FaultCodeBrowser } from "@/components/FaultCodeBrowser";
 import { FaultCodeCard } from "@/components/FaultCodeCard";
-import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
+import { hasWorkspaceVisuals, type VisualSpec } from "@/lib/agentResponse";
 import type { ConversationState } from "@/lib/conversationState";
 import type { CachedResponseData } from "@/lib/prebuiltAnswers";
 import { recommendFromAnswers, type QuickSetupAnswers } from "@/lib/quickSetup";
@@ -32,27 +32,7 @@ type ChatTurn = {
   faultCode?: FaultCode;
 };
 
-// Visual kinds that render inline in the chat bubble (not the workspace), so
-// they should not count toward "View visual" affordance or workspace scroll.
-const CHAT_ONLY_VISUAL_KINDS: ReadonlySet<VisualSpec["kind"]> = new Set([
-  "troubleshooting_flow",
-  "pre_weld_checklist"
-]);
 
-// Returns true when the workspace would render at least one panel for this
-// response. Mirrors the conditions inside VisualWorkspace's answer tab so the
-// "View visual" affordance only appears on messages that produced a visual.
-function hasWorkspaceVisuals(response?: CachedResponseData): boolean {
-  if (!response) return false;
-  if (response.visuals?.some((v) => !CHAT_ONLY_VISUAL_KINDS.has(v.kind))) return true;
-  if (response.visualType === "polarity") return true;
-  if (response.visualType === "duty-cycle" && response.dutyCycleRows?.length) return true;
-  if (response.visualType === "process-selection") return true;
-  if (response.visualType === "image-diagnosis" && response.imageDiagnosis) return true;
-  if (response.settingRecommendation) return true;
-  if (response.manualImages?.length) return true;
-  return false;
-}
 
 // Pulls the troubleshooting flow data for inline chat rendering. Prefers the
 // planner-built spec; falls back to legacy response fields when the older

@@ -10,7 +10,7 @@ import { ImageDiagnosisPanel } from "@/components/ImageDiagnosisPanel";
 import { ProcessSelectionMatrix } from "@/components/ProcessSelectionMatrix";
 import { SettingsRecommendationCard } from "@/components/SettingsRecommendationCard";
 import { WarningCard } from "@/components/WarningCard";
-import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
+import { hasWorkspaceVisuals, type AgentResponse, type VisualSpec } from "@/lib/agentResponse";
 import { dedupeRefs, dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
 import { stripInlineMarkdown } from "@/lib/textFormat";
 
@@ -81,74 +81,69 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
         {tab === "answer" ? (
           isLoading ? (
             <LoadingWorkspace />
-          ) : response ? (
-            response.visuals?.length ? (
-              <div className="space-y-4">
-                {response.visuals.map((spec, index) => (
-                  <VisualSpecRenderer
-                    key={`${spec.kind}-${index}`}
-                    spec={spec}
-                    refs={response.refs}
-                    userQuestion={userQuestion}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {response.visualType === "polarity" ? (
-                  <WorkspaceSection title="Setup Diagram" refs={response.refs}>
-                    {response.highlightContext?.emphasis ? (
-                      <div className="rounded-lg border border-black/[0.08] bg-card-soft px-3 py-2 text-xs font-medium text-text-primary">
-                        {stripInlineMarkdown(response.highlightContext.emphasis)}
-                      </div>
-                    ) : null}
-                    <CustomSetupDiagram process={response.process} />
-                  </WorkspaceSection>
-                ) : null}
-                {response.visualType === "duty-cycle" && response.dutyCycleRows ? (
-                  <WorkspaceSection title="Duty Cycle" refs={response.refs}>
-                    <InteractiveDutyCycle
-                      rows={response.dutyCycleRows}
-                      initialKey={response.highlightContext?.highlightKey}
-                    />
-                  </WorkspaceSection>
-                ) : null}
-                {response.visualType === "process-selection" ? (
-                  <WorkspaceSection title="Process Selection" refs={response.refs}>
-                    <ProcessSelectionMatrix highlightProcess={response.recommendedProcess} />
-                  </WorkspaceSection>
-                ) : null}
-                {response.visualType === "image-diagnosis" && response.imageDiagnosis ? (
-                  <WorkspaceSection title="Image Diagnosis" refs={response.refs}>
-                    <ImageDiagnosisPanel
-                      diagnosis={response.imageDiagnosis}
-                      reference={response.refs?.[0] ? { title: response.refs[0].title, page: response.refs[0].page } : undefined}
-                    />
-                  </WorkspaceSection>
-                ) : null}
-                {response.settingRecommendation ? (
-                  <WorkspaceSection title="Settings Recommendation" refs={response.refs}>
-                    <SettingsRecommendationCard recommendation={response.settingRecommendation} />
-                  </WorkspaceSection>
-                ) : null}
-                {response.manualImages?.map((manualImage) => (
-                  <WorkspaceSection key={manualImage.title} title={manualImage.title} refs={manualImage.refs}>
-                    <ManualImageCard image={manualImage} />
-                  </WorkspaceSection>
-                ))}
-                {!response.manualImages?.length &&
-                  response.visualType !== "polarity" &&
-                  response.visualType !== "duty-cycle" &&
-                  response.visualType !== "process-selection" &&
-                  response.visualType !== "image-diagnosis" &&
-                  response.visualType !== "troubleshooting" &&
-                  !response.settingRecommendation ? (
-                  <EmptyWorkspace />
-                ) : null}
-              </div>
-            )
+          ) : !response ? (
+            <EmptyWorkspace variant="initial" />
+          ) : !hasWorkspaceVisuals(response) ? (
+            // Response present but no workspace-rendered visual (pure
+            // explanation, definition, fault-code lookup, troubleshooting
+            // whose flow renders inline in chat). Show an honest empty state
+            // so the panel doesn't promise visuals that aren't coming.
+            <EmptyWorkspace variant="no-visual" />
+          ) : response.visuals?.length ? (
+            <div className="space-y-4">
+              {response.visuals.map((spec, index) => (
+                <VisualSpecRenderer
+                  key={`${spec.kind}-${index}`}
+                  spec={spec}
+                  refs={response.refs}
+                  userQuestion={userQuestion}
+                />
+              ))}
+            </div>
           ) : (
-            <EmptyWorkspace />
+            <div className="space-y-4">
+              {response.visualType === "polarity" ? (
+                <WorkspaceSection title="Setup Diagram" refs={response.refs}>
+                  {response.highlightContext?.emphasis ? (
+                    <div className="rounded-lg border border-black/[0.08] bg-card-soft px-3 py-2 text-xs font-medium text-text-primary">
+                      {stripInlineMarkdown(response.highlightContext.emphasis)}
+                    </div>
+                  ) : null}
+                  <CustomSetupDiagram process={response.process} />
+                </WorkspaceSection>
+              ) : null}
+              {response.visualType === "duty-cycle" && response.dutyCycleRows ? (
+                <WorkspaceSection title="Duty Cycle" refs={response.refs}>
+                  <InteractiveDutyCycle
+                    rows={response.dutyCycleRows}
+                    initialKey={response.highlightContext?.highlightKey}
+                  />
+                </WorkspaceSection>
+              ) : null}
+              {response.visualType === "process-selection" ? (
+                <WorkspaceSection title="Process Selection" refs={response.refs}>
+                  <ProcessSelectionMatrix highlightProcess={response.recommendedProcess} />
+                </WorkspaceSection>
+              ) : null}
+              {response.visualType === "image-diagnosis" && response.imageDiagnosis ? (
+                <WorkspaceSection title="Image Diagnosis" refs={response.refs}>
+                  <ImageDiagnosisPanel
+                    diagnosis={response.imageDiagnosis}
+                    reference={response.refs?.[0] ? { title: response.refs[0].title, page: response.refs[0].page } : undefined}
+                  />
+                </WorkspaceSection>
+              ) : null}
+              {response.settingRecommendation ? (
+                <WorkspaceSection title="Settings Recommendation" refs={response.refs}>
+                  <SettingsRecommendationCard recommendation={response.settingRecommendation} />
+                </WorkspaceSection>
+              ) : null}
+              {response.manualImages?.map((manualImage) => (
+                <WorkspaceSection key={manualImage.title} title={manualImage.title} refs={manualImage.refs}>
+                  <ManualImageCard image={manualImage} />
+                </WorkspaceSection>
+              ))}
+            </div>
           )
         ) : null}
 
@@ -291,7 +286,20 @@ function SourceSummary({ refs }: { refs: ManualRef[] }) {
   );
 }
 
-function EmptyWorkspace() {
+function EmptyWorkspace({ variant = "initial" }: { variant?: "initial" | "no-visual" }) {
+  if (variant === "no-visual") {
+    return (
+      <div className="rounded-xl border border-black/[0.08] bg-card p-4 shadow-panel">
+        <div className="mb-2 flex items-center gap-2">
+          <FileImage size={17} className="text-text-secondary" />
+          <h3 className="text-sm font-semibold text-text-primary">No visual for this answer</h3>
+        </div>
+        <p className="text-sm leading-6 text-text-secondary">
+          The chat has the full answer. The Setup, Duty, and Settings tabs above are still available as standalone tools.
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="rounded-xl border border-black/[0.08] bg-card p-4 shadow-panel">
       <div className="mb-2 flex items-center gap-2">

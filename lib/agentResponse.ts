@@ -169,6 +169,30 @@ export type AgentResponse = Omit<ParsedAgentResponse, "manualImages"> & {
   visuals?: VisualSpec[];
 };
 
+// Visual kinds that render inline in the chat bubble (not the workspace), so
+// they should not count toward "View visual" affordance or workspace content.
+export const CHAT_ONLY_VISUAL_KINDS: ReadonlySet<VisualSpec["kind"]> = new Set([
+  "troubleshooting_flow",
+  "pre_weld_checklist"
+]);
+
+// True when the workspace's Answer tab would render at least one panel for
+// this response. Single source of truth shared by the chat bubble (gates the
+// "View visual" pill) and the workspace itself (gates the "no visual for this
+// answer" empty state). Mirrors every render branch of VisualWorkspace's
+// answer tab \u2014 keep the two in lockstep.
+export function hasWorkspaceVisuals(response?: AgentResponse): boolean {
+  if (!response) return false;
+  if (response.visuals?.some((v) => !CHAT_ONLY_VISUAL_KINDS.has(v.kind))) return true;
+  if (response.visualType === "polarity") return true;
+  if (response.visualType === "duty-cycle" && response.dutyCycleRows?.length) return true;
+  if (response.visualType === "process-selection") return true;
+  if (response.visualType === "image-diagnosis" && response.imageDiagnosis) return true;
+  if (response.settingRecommendation) return true;
+  if (response.manualImages?.length) return true;
+  return false;
+}
+
 export function localGroundedResponse(question: string): AgentResponse {
   const context = retrieveManualContext(question);
   const lower = question.toLowerCase();
