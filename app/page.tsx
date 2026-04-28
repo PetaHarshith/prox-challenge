@@ -7,6 +7,8 @@ import { SourceChips } from "@/components/SourceChips";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { VisualWorkspace } from "@/components/VisualWorkspace";
 import { QuickSetupForm } from "@/components/QuickSetupForm";
+import { TroubleshootingFlow } from "@/components/TroubleshootingFlow";
+import { PreWeldChecklist } from "@/components/PreWeldChecklist";
 import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import type { ConversationState } from "@/lib/conversationState";
 import type { CachedResponseData } from "@/lib/prebuiltAnswers";
@@ -20,20 +22,49 @@ type ChatTurn = {
   response?: CachedResponseData;
 };
 
+// Visual kinds that render inline in the chat bubble (not the workspace), so
+// they should not count toward "View visual" affordance or workspace scroll.
+const CHAT_ONLY_VISUAL_KINDS: ReadonlySet<VisualSpec["kind"]> = new Set([
+  "troubleshooting_flow",
+  "pre_weld_checklist"
+]);
+
 // Returns true when the workspace would render at least one panel for this
 // response. Mirrors the conditions inside VisualWorkspace's answer tab so the
 // "View visual" affordance only appears on messages that produced a visual.
 function hasWorkspaceVisuals(response?: CachedResponseData): boolean {
   if (!response) return false;
-  if (response.visuals?.length) return true;
+  if (response.visuals?.some((v) => !CHAT_ONLY_VISUAL_KINDS.has(v.kind))) return true;
   if (response.visualType === "polarity") return true;
   if (response.visualType === "duty-cycle" && response.dutyCycleRows?.length) return true;
   if (response.visualType === "process-selection") return true;
   if (response.visualType === "image-diagnosis" && response.imageDiagnosis) return true;
-  if (response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length)) return true;
   if (response.settingRecommendation) return true;
   if (response.manualImages?.length) return true;
   return false;
+}
+
+// Pulls the troubleshooting flow data for inline chat rendering. Prefers the
+// planner-built spec; falls back to legacy response fields when the older
+// shape (visualType="troubleshooting" + troubleshootingItems) is in play.
+function pickTroubleshootingFlow(
+  response: CachedResponseData | undefined,
+  symptomFallback: string
+): { items?: { cause: string; check: string; fix: string }[]; checklist?: string[]; symptom: string } | undefined {
+  if (!response) return undefined;
+  const spec = response.visuals?.find((v) => v.kind === "troubleshooting_flow");
+  if (spec && spec.kind === "troubleshooting_flow") {
+    return { items: spec.items, checklist: spec.checklist, symptom: spec.symptom ?? symptomFallback };
+  }
+  if (response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length)) {
+    return { items: response.troubleshootingItems, checklist: response.checklist, symptom: symptomFallback };
+  }
+  return undefined;
+}
+
+function pickPreWeldChecklist(response: CachedResponseData | undefined) {
+  const spec = response?.visuals?.find((v) => v.kind === "pre_weld_checklist");
+  return spec && spec.kind === "pre_weld_checklist" ? spec : undefined;
 }
 
 // Builds a synthetic assistant response from the Quick Setup form so the
@@ -525,10 +556,26 @@ export default function Home() {
         <section className="flex min-h-0 flex-col bg-transparent">
           <div ref={chatScrollRef} className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
             <div className="mx-auto max-w-4xl space-y-4">
-              {turns.map((turn) => {
+              {turns.map((turn, idx) => {
                 const turnHasVisuals = turn.role === "assistant" && hasWorkspaceVisuals(turn.response);
                 const isPinned = pinnedTurnId === turn.id;
                 const isLatestAssistant = turn.id === latestAssistantTurn?.id;
+                // Walk back to the user message that produced this assistant
+                // turn so the inline troubleshooting flow can show the symptom.
+                const priorUserContent =
+                  turn.role === "assistant"
+                    ? [...turns.slice(0, idx)].reverse().find((t) => t.role === "user")?.content ?? ""
+                    : "";
+                // Hide the inline checklists while the answer is still
+                // streaming so the prose finishes first; they fade in once the
+                // bubble settles.
+                const isStreamingThisTurn = turn.id === streamingTurnId;
+                const troubleFlow =
+                  turn.role === "assistant" && !isStreamingThisTurn
+                    ? pickTroubleshootingFlow(turn.response, priorUserContent)
+                    : undefined;
+                const preWeldSpec =
+                  turn.role === "assistant" && !isStreamingThisTurn ? pickPreWeldChecklist(turn.response) : undefined;
                 return (
                   <article key={turn.id} className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}>
                     <div
@@ -543,6 +590,30 @@ export default function Home() {
                       ) : (
                         <MarkdownContent content={turn.content} />
                       )}
+                      {troubleFlow ? (
+                        <div
+                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
+                          style={{ animationDelay: "120ms" }}
+                        >
+                          <TroubleshootingFlow
+                            steps={troubleFlow.checklist}
+                            items={troubleFlow.items}
+                            symptom={troubleFlow.symptom}
+                          />
+                        </div>
+                      ) : null}
+                      {preWeldSpec ? (
+                        <div
+                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
+                          style={{ animationDelay: troubleFlow ? "260ms" : "120ms" }}
+                        >
+                          <PreWeldChecklist
+                            process={preWeldSpec.process}
+                            items={preWeldSpec.items}
+                            title={preWeldSpec.title}
+                          />
+                        </div>
+                      ) : null}
                       {turn.id === streamingTurnId ? (
                         <div className="mt-2 inline-flex items-center gap-2 text-xs text-text-secondary">
                           <span className="flex items-end gap-1" aria-hidden>

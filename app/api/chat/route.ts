@@ -15,7 +15,7 @@ import {
   type ManualRef,
   type WeldProcess
 } from "@/lib/manualKnowledge";
-import { findManualImageById, getManualImageRef } from "@/lib/manualImageIndex";
+import { findManualImageById, getManualImageRef, type ManualImageIndexEntry } from "@/lib/manualImageIndex";
 import { planOutput, planVisuals, structuredCacheKey, type PlannerIntent, type PlannerVisualType } from "@/lib/outputPlanner";
 import type { VisualType } from "@/lib/manualKnowledge";
 import {
@@ -55,7 +55,15 @@ const systemPrompt = [
   "- Ground every fact in the Vulcan OmniPro 220 manual. Do not add unsupported real-world advice.",
   "- Do not reorder manual troubleshooting steps unless the manual itself orders them differently for that process.",
   "- For flux-core porosity questions, do NOT lead with shielding-gas / regulator checks — flux-core is self-shielded; lead with polarity, clean metal, dry/clean wire, CTWD, and steady drag technique.",
-  "- Do not repeat in prose what a diagram or table already shows."
+  "- Do not repeat in prose what a diagram or table already shows.",
+  "",
+  "VISUALS (grounded only):",
+  "- If the user asks to show, display, open, label, or pull up a manual image / diagram / visual / panel, do not troubleshoot first and do not ask clarifying questions.",
+  "- For manual image requests, return visualType=\"manual-image\" and a short one-sentence answer.",
+  "- Use real manual images whenever available. Never invent product visuals, \u201Ctypical welder\u201D layouts, fake diagrams, fake labels, or fake image details.",
+  "- Generated diagrams (setup_diagram, duty cycle table) are allowed only when based on structured manual data (polaritySetups, dutyCycleRows).",
+  "- If no grounded manual visual exists for the request, say so clearly instead of inventing one.",
+  "- An interactive troubleshooting flow and pre-weld checklist render inline below your prose in the chat bubble; do not duplicate those step lists in the answer. Keep prose for context, reasoning, and anything not in the checklist."
 ].join("\n");
 
 // Detects the generic "Use MIG / TIG / flux-core" comparison block when the
@@ -94,6 +102,42 @@ function composeImageDiagnosisAnswer(d: NonNullable<AgentResponse["imageDiagnosi
     lines.push(`Note: ${d.caution}`);
   }
   return lines.join("\n");
+}
+
+// Builds the short, grounded one-sentence answer for a manual_image_question.
+// When no indexed image fits the request, returns an honest message instead of
+// inventing a "typical welder" layout.
+function composeManualImageAnswer(
+  question: string,
+  entry: ManualImageIndexEntry | undefined,
+  image: ManualImage | undefined
+): string {
+  if (!entry || !image) {
+    return "I don\u2019t have a manual image indexed for that exact view, so I can\u2019t show a grounded manual visual. I can still show a simplified diagram if it can be built from structured manual data.";
+  }
+  const lower = question.toLowerCase();
+  if (entry.id === "weld-diagnosis") {
+    return "Here\u2019s the manual image showing weld appearance and common defects (porosity, spatter, burn-through, wavy bead).";
+  }
+  if (entry.id === "front-panel-controls") {
+    return "Here\u2019s the manual image of the front panel controls and output sockets.";
+  }
+  if (entry.id.endsWith("-setup-diagram")) {
+    const proc = entry.id.replace("-setup-diagram", "").toUpperCase();
+    return `Here\u2019s the manual\u2019s ${proc} setup diagram from the Owner\u2019s Manual.`;
+  }
+  if (entry.id === "duty-cycle-chart") {
+    return "Here\u2019s the manual\u2019s duty-cycle chart with the 120V and 240V ratings.";
+  }
+  if (entry.id === "wire-feed-interior") {
+    return "Here\u2019s the manual image of the wire feed compartment (drive roller, tensioner, inlet guide).";
+  }
+  if (entry.id === "process-selection-chart") {
+    return "Here\u2019s the manual\u2019s process selection chart comparing MIG, flux-core, TIG, and stick.";
+  }
+  // Fallback: still grounded — mention only what the indexed entry guarantees.
+  void lower;
+  return `Here\u2019s the manual image: ${entry.title} (${entry.source} p.${entry.page}).`;
 }
 
 // Detects "what is X / define X / explain X / what does X mean" phrasing.
@@ -245,7 +289,6 @@ function augmentVisualsWithGarageTools(
   visuals: VisualSpec[],
   intent: PlannerIntent,
   process: WeldProcess,
-  message: string,
   warnings: ReturnType<typeof detectSmartWarnings>
 ): VisualSpec[] {
   const out = [...visuals];
@@ -621,6 +664,44 @@ async function runChatPipeline(
     return;
   }
 
+  // Manual image / visual request short-circuit. We never call Claude here:
+  // either we serve the indexed manual image grounded in the manual, or we
+  // honestly say no grounded visual exists for this view. No troubleshooting,
+  // no clarification, no generic process dump.
+  if (outputPlan.intent === "manual_image_question") {
+    const linkedManual = indexedVisual
+      ? manualImages.find((image) => image.src === indexedVisual.imagePath)
+      : undefined;
+    const answer = composeManualImageAnswer(question, indexedVisual, linkedManual);
+    const refs: ManualRef[] = indexedVisual ? [getManualImageRef(indexedVisual)] : [];
+    const visuals: VisualSpec[] = linkedManual
+      ? [{ kind: "manual_image", image: linkedManual, interpretation: getImageInterpretation(linkedManual.src, question) }]
+      : [];
+    const response: AgentResponse = {
+      answer,
+      visualType: "manual-image",
+      process: outputPlan.process,
+      refs,
+      visuals,
+      manualImages: linkedManual ? [linkedManual] : [],
+      outputPlan
+    };
+    const conversationState = nextConversationState(question, response, body.conversationState, resolved);
+    sink.write({ type: "answer_delta", delta: answer });
+    sink.write({ type: "answer_done" });
+    sink.write({
+      type: "complete",
+      response: {
+        ...response,
+        conversationState,
+        usedModel: "manual-image-grounded" as const,
+        cacheKey
+      }
+    });
+    sink.close();
+    return;
+  }
+
   if (!process.env.ANTHROPIC_API_KEY) {
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
     const localImage = indexedVisual
@@ -637,7 +718,6 @@ async function runChatPipeline(
       localBaseVisuals,
       outputPlan.intent,
       localResponse.process,
-      question,
       localWarnings
     );
     if (localWarnings.length && !localResponse.highlights?.warning) {
@@ -875,7 +955,6 @@ async function runChatPipeline(
       baseVisuals,
       outputPlan.intent,
       response.process,
-      question,
       warnings
     );
     if (warnings.length && !response.highlights?.warning) {
@@ -902,7 +981,6 @@ async function runChatPipeline(
       fallbackBaseVisuals,
       outputPlan.intent,
       fallback.process,
-      question,
       fallbackWarnings
     );
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);

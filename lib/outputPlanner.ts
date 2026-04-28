@@ -94,6 +94,44 @@ const VAGUE_TROUBLE_RE =
 const PROCESS_SELECTION_RE =
   /\bchoose\b|\bwhich process\b|\bwhat process\b|\bcompare\b|\bbest process\b|\bshould i use\b|\bdifference between\b|\b(mig|tig|flux(?:-?core)?|stick)\s+(vs\.?|versus)\s+(mig|tig|flux(?:-?core)?|stick)\b|\bdon'?t have gas\b/;
 
+// "Show / display / open / pull up / give me ..." paired with a visual noun
+// (image, diagram, visual, manual page, picture, photo, figure, chart,
+// illustration, panel, controls). Intentionally narrow: it routes only when
+// the user explicitly asks to see something, not when they ask how to do
+// something.
+const SHOW_VERB_RE =
+  /\b(show|display|open|pull up|bring up|give me|see|view|look at|find me)\b/;
+const VISUAL_NOUN_RE =
+  /\b(image|images|diagram|diagrams|visual|visuals|manual page|manual pages|picture|pictures|photo|photos|figure|figures|chart|charts|illustration|illustrations|panel|controls)\b/;
+// "Draw / create / make / sketch / render / generate / build" — the user wants
+// a generated diagram, not a manual image. These verbs keep the request on
+// the setup_diagram path even when "diagram" appears in the sentence.
+const GENERATED_VERB_RE = /\b(draw|create|make|sketch|render|generate|build|design)\b/;
+// Weld-appearance terms route a manual-image request to the weld-diagnosis
+// page (Owner's Manual p.37).
+const WELD_APPEARANCE_RE =
+  /\b(weld appearance|weld defects?|porosity|porous|pinholes?|spatter|burn[- ]through|wavy bead|poor penetration|weld diagnosis|bad weld|defects?)\b/;
+// Front panel / controls terms route to the front-panel-controls page.
+const FRONT_PANEL_RE = /\b(front panel|knobs?|buttons?|lcd|labels?)\b/;
+
+function isManualImageRequest(lower: string): boolean {
+  return SHOW_VERB_RE.test(lower) && VISUAL_NOUN_RE.test(lower) && !GENERATED_VERB_RE.test(lower);
+}
+
+// Picks an indexed manual-image id from the user's phrasing. Order matters:
+// weld appearance wins over front panel, which wins over process-specific
+// wiring. Returns undefined when no grounded image fits — the route then
+// returns an honest "no manual image indexed" answer.
+function selectManualImageId(lower: string, process: WeldProcess): string | undefined {
+  if (WELD_APPEARANCE_RE.test(lower)) return "weld-diagnosis";
+  if (FRONT_PANEL_RE.test(lower)) return "front-panel-controls";
+  if (/\bduty cycle\b/.test(lower)) return "duty-cycle-chart";
+  if (/\bwire (?:loading|feed)\b|\bspool\b|\bdrive roller\b/.test(lower)) return "wire-feed-interior";
+  if (/\bselection chart\b|\bprocess selection\b/.test(lower)) return "process-selection-chart";
+  if (process !== "unknown") return `${process}-setup-diagram`;
+  return undefined;
+}
+
 export function planOutput({
   message,
   hasUploadedImage,
@@ -121,7 +159,26 @@ export function planOutput({
     };
   }
 
-  // 2. Setup / polarity (BEFORE process_selection so a TIG/MIG mention does not
+  // 2. Manual image / visual request — high priority. "Show me the manual
+  //    image / diagram / visual / panel" wins over setup and troubleshooting
+  //    so we serve the indexed manual page instead of a generated diagram or
+  //    a generic checklist. "Draw / create / make / sketch ..." is excluded
+  //    so generated-diagram requests still hit the setup branch below.
+  if (isManualImageRequest(lower)) {
+    const visualId = selectManualImageId(lower, process);
+    return {
+      intent: "manual_image_question",
+      process,
+      slots,
+      requiredFacts: ["Show the indexed manual image grounded in the manual."],
+      visualType: "manual_image_card",
+      visualId,
+      needsClaudeVision: false,
+      needsClarification: false
+    };
+  }
+
+  // 3. Setup / polarity (BEFORE process_selection so a TIG/MIG mention does not
   //    trigger the comparison matrix).
   if (SETUP_RE.test(lower)) {
     const needsClarification = process === "unknown" && !conversationState?.pending;
@@ -262,6 +319,11 @@ export function planVisuals(message: string, hasUploadedImage: boolean): Planner
 
   const lower = message.toLowerCase();
   const slots = extractSlots(message);
+
+  // Manual image / visual request — short-circuit so the workspace shows the
+  // indexed manual page only (no setup diagram, no checklist).
+  if (isManualImageRequest(lower)) return ["manual_image_card"];
+
   const visuals: PlannerVisualType[] = [];
 
   const isSetup = SETUP_RE.test(lower);

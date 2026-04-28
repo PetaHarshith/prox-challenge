@@ -9,8 +9,6 @@ import { ManualImageCard } from "@/components/ManualImageCard";
 import { ImageDiagnosisPanel } from "@/components/ImageDiagnosisPanel";
 import { ProcessSelectionMatrix } from "@/components/ProcessSelectionMatrix";
 import { SettingsRecommendationCard } from "@/components/SettingsRecommendationCard";
-import { TroubleshootingFlow } from "@/components/TroubleshootingFlow";
-import { PreWeldChecklist } from "@/components/PreWeldChecklist";
 import { WarningCard } from "@/components/WarningCard";
 import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import { dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
@@ -124,15 +122,6 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
                     <ImageDiagnosisPanel
                       diagnosis={response.imageDiagnosis}
                       reference={response.refs?.[0] ? { title: response.refs[0].title, page: response.refs[0].page } : undefined}
-                    />
-                  </WorkspaceSection>
-                ) : null}
-                {response.visualType === "troubleshooting" && (response.troubleshootingItems?.length || response.checklist?.length) ? (
-                  <WorkspaceSection title="Fix it step-by-step" refs={response.refs}>
-                    <TroubleshootingFlow
-                      steps={response.checklist}
-                      items={response.troubleshootingItems}
-                      symptom={userQuestion}
                     />
                   </WorkspaceSection>
                 ) : null}
@@ -360,13 +349,8 @@ function VisualSpecRenderer({
       </WorkspaceSection>
     );
   }
-  if (spec.kind === "troubleshooting_flow") {
-    return (
-      <WorkspaceSection title="Fix it step-by-step" refs={refs}>
-        <TroubleshootingFlow steps={spec.checklist} items={spec.items} symptom={spec.symptom ?? userQuestion} />
-      </WorkspaceSection>
-    );
-  }
+  // troubleshooting_flow renders inline in the chat bubble — skip in workspace.
+  if (spec.kind === "troubleshooting_flow") return null;
   if (spec.kind === "manual_image") {
     return (
       <WorkspaceSection title={spec.image.title} refs={spec.image.refs}>
@@ -388,13 +372,8 @@ function VisualSpecRenderer({
       </WorkspaceSection>
     );
   }
-  if (spec.kind === "pre_weld_checklist") {
-    return (
-      <WorkspaceSection title="Pre-Weld Checklist" refs={refs}>
-        <PreWeldChecklist process={spec.process} items={spec.items} title={spec.title} />
-      </WorkspaceSection>
-    );
-  }
+  // pre_weld_checklist renders inline in the chat bubble — skip in workspace.
+  if (spec.kind === "pre_weld_checklist") return null;
   if (spec.kind === "warnings") {
     return (
       <WorkspaceSection title="Warnings">
