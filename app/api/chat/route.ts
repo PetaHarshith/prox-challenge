@@ -333,9 +333,12 @@ function attachAnswerDrivenSetupVisuals(
   // processes (a genuine compare/explain-all). Otherwise restrict to a single
   // primary process so Claude's "use X, not Y" prose mentions don't inflate
   // a single-process recommendation into a comparison table + per-process
-  // checklists in the chat bubble.
+  // checklists in the chat bubble. Troubleshooting questions never fan out:
+  // "switched from MIG to flux-core and now it's bad" names two processes but
+  // only one is currently active — the destination — so the diagnosis should
+  // surface a single setup diagram for the active process, not a side-by-side.
   const merged: Array<Exclude<WeldProcess, "unknown">> = [];
-  if (fromQuestion.length >= 2) {
+  if (fromQuestion.length >= 2 && intent !== "troubleshooting") {
     for (const p of [...fromQuestion, ...fromAnswer]) {
       if (!merged.includes(p)) merged.push(p);
     }
@@ -398,9 +401,13 @@ function augmentVisualsWithGarageTools(
   // Pre-weld checklists are pre-build steps (cables, polarity, gas, wire).
   // They are meaningless for troubleshooting / weld-image diagnosis questions,
   // but multi-process explanation questions still need them because the user is
-  // asking to understand setup choices side-by-side.
+  // asking to understand setup choices side-by-side. The multi-setup trigger
+  // is explicitly gated on a non-troubleshooting intent so a regression-after-
+  // change question that happens to attach two setup diagrams doesn't drag a
+  // pre-build checklist into a diagnosis answer.
   const setupLikeIntent: PlannerIntent[] = ["setup", "polarity", "settings_recommendation"];
-  const checklistAllowed = setupLikeIntent.includes(intent) || setupProcesses.length >= 2;
+  const checklistAllowed =
+    setupLikeIntent.includes(intent) || (setupProcesses.length >= 2 && intent !== "troubleshooting");
   if (checklistAllowed && !hasChecklist && setupProcesses.length >= 2) {
     const lastSetupIndex = out.map((v) => v.kind).lastIndexOf("setup_diagram");
     const insertAt = lastSetupIndex >= 0 ? lastSetupIndex + 1 : out.length;

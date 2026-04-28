@@ -92,6 +92,20 @@ const SPECIFIC_DEFECT_RE =
 const VAGUE_TROUBLE_RE =
   /\bbad weld\b|\bweak weld\b|\bugly weld\b|\bweld(?:s)? (?:looks?|seems?|are) (?:bad|off|wrong|weird|ugly|terrible)\b|\bsomething(?:'s| is) wrong\b|\bdoesn'?t look right\b|\bmessed up\b|\blooks off\b/;
 
+// Regression-after-change cue: the user reports they switched/changed/swapped
+// process or material AND describes a degraded result. Example: "I switched
+// from MIG to flux-core and now it's bad — why". This phrasing names two
+// processes so it would otherwise fall into the multi-process setup branch
+// and surface a comparison table; instead it should route to troubleshooting
+// with a 1–2 sentence diagnosis (the change itself is the diagnostic hint).
+const CHANGE_CUE_RE =
+  /\b(?:switch(?:ed|ing)?|chang(?:ed|ing)?|swap(?:ped|ping)?|mov(?:ed|ing)?|went|going)(?:\s+[a-z]+){0,2}\s+(?:from|to|over)\b/;
+const REGRESSION_PROBLEM_RE =
+  /\b(?:now|since|after|then)\b[^.!?]{0,60}\b(?:bad|worse|broken|won'?t|not working|messed up|terrible|ugly|wrong|off|porous|sooty|sputter(?:ing)?|unstable|no arc)\b|\b(?:weld|bead|result|output|arc|puddle)s?\b[^.!?]{0,30}\b(?:bad|worse|broken|won'?t|not working|messed up|terrible|ugly|wrong|off|porous|sooty|sputter(?:ing)?|unstable)\b/;
+function isRegressionAfterChange(lower: string): boolean {
+  return CHANGE_CUE_RE.test(lower) && REGRESSION_PROBLEM_RE.test(lower);
+}
+
 const PROCESS_SELECTION_RE =
   /\bchoose\b|\bwhich process\b|\bwhat process\b|\bcompare\b|\bbest process\b|\bshould i use\b|\bdifference between\b|\b(mig|tig|flux(?:-?core)?|stick)\s+(vs\.?|versus)\s+(mig|tig|flux(?:-?core)?|stick)\b|\bdon'?t have gas\b/;
 
@@ -233,7 +247,8 @@ export function planOutput({
   //    "troubleshoot" — those phrasings ("troubleshoot mig setup porosity")
   //    are diagnosis questions that happen to mention setup, not setup
   //    questions, so we let the troubleshooting branch below own them.
-  const troubleTakesPrecedence = /\btroubleshoot(?:ing)?\b/.test(lower) || SPECIFIC_DEFECT_RE.test(lower);
+  const troubleTakesPrecedence =
+    /\btroubleshoot(?:ing)?\b/.test(lower) || SPECIFIC_DEFECT_RE.test(lower) || isRegressionAfterChange(lower);
   if (SETUP_RE.test(lower) && !troubleTakesPrecedence) {
     const isMultiProcessSetup = mentionedProcesses.length >= 2;
     const needsClarification = process === "unknown" && !isMultiProcessSetup && !conversationState?.pending;
@@ -294,7 +309,22 @@ export function planOutput({
   // 4. Troubleshooting. If only vague phrasing matched (no specific defect
   //    noun like porosity/spatter/burn-through), we cannot diagnose without
   //    guessing. Ask for the defect type or a photo instead of returning a
-  //    generic checklist.
+  //    generic checklist. Regression-after-change ("switched from MIG to
+  //    flux-core and now it's bad") is a special case: the change itself is
+  //    the diagnostic hint, so we route straight to the troubleshooting flow
+  //    without asking the user to name a defect.
+  if (isRegressionAfterChange(lower)) {
+    return {
+      intent: "troubleshooting",
+      process,
+      slots,
+      requiredFacts: ["Likely cause tied to the recent process/material change", "Checks in order", "Manual diagnosis references"],
+      visualType: "troubleshooting_flow",
+      visualId: "weld-diagnosis",
+      needsClaudeVision: false,
+      needsClarification: false
+    };
+  }
   if (TROUBLE_RE.test(lower) || VAGUE_TROUBLE_RE.test(lower)) {
     const hasSpecificDefect = SPECIFIC_DEFECT_RE.test(lower);
     if (!hasSpecificDefect) {
@@ -439,7 +469,7 @@ export function planVisuals(message: string, hasUploadedImage: boolean): Planner
 
   const isSetup = SETUP_RE.test(lower);
   const isDuty = DUTY_RE.test(lower);
-  const isTrouble = TROUBLE_RE.test(lower);
+  const isTrouble = TROUBLE_RE.test(lower) || isRegressionAfterChange(lower);
   const isProcessChoice = PROCESS_SELECTION_RE.test(lower);
   const isWireLoading = WIRE_LOADING_RE.test(lower);
   const isSettings = SETTINGS_RE.test(lower) && !isSetup && !isDuty && !isTrouble;
