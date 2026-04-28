@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Cable, Clock3, FileImage, Gauge, Loader2, SlidersHorizontal } from "lucide-react";
+import { Cable, Clock3, ExternalLink, FileImage, Gauge, Loader2, SlidersHorizontal } from "lucide-react";
 import { CustomSetupDiagram } from "@/components/CustomSetupDiagram";
 import { DutyCycleCard } from "@/components/DutyCycleCard";
 import { ManualImageCard } from "@/components/ManualImageCard";
@@ -192,7 +192,7 @@ export function VisualWorkspace({ response, userQuestion, isLoading }: { respons
                 <option value="120V">120V input</option>
                 <option value="240V">240V input</option>
               </select>
-              <div className="flex h-10 min-w-16 items-center justify-center rounded-xl bg-brass px-3 text-sm font-semibold text-text-primary">
+              <div className="flex h-10 min-w-16 items-center justify-center rounded-xl bg-[#171A1F] px-3 text-sm font-semibold text-white">
                 {amperage}A
               </div>
             </div>
@@ -278,17 +278,23 @@ function WorkspaceSection({ children, refs, title }: { children: ReactNode; refs
 
 function SourceSummary({ refs }: { refs: ManualRef[] }) {
   return (
-    <div className="rounded-lg border border-black/[0.08] bg-card px-3 py-2 text-xs leading-5 text-text-secondary">
-      <span className="font-medium text-text-primary">Sources: </span>
-      {refs.map((ref, index) => (
-        <span key={`${ref.source}-${ref.title}`}>
-          <a href={ref.url} target="_blank" rel="noreferrer" className="font-medium text-text-primary underline decoration-white/20 underline-offset-2 hover:text-text-primary">
+    <div className="rounded-lg border border-black/[0.08] bg-card px-3 py-2">
+      <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Sources</div>
+      <div className="flex flex-wrap gap-1.5">
+        {refs.map((ref) => (
+          <a
+            key={`${ref.source}-${ref.title}`}
+            href={ref.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 rounded-full border border-black/[0.1] bg-card-soft px-2.5 py-1 text-xs font-medium text-text-primary transition hover:border-black/20 hover:bg-white"
+          >
             {ref.source}
             {ref.page ? ` p.${ref.page}` : ""}
+            <ExternalLink size={11} />
           </a>
-          {index < refs.length - 1 ? ", " : ""}
-        </span>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
@@ -434,7 +440,7 @@ function InteractiveDutyCycle({ rows, initialKey }: { rows: typeof dutyCycleRows
               </button>
             ))}
           </div>
-          <div className="flex h-8 min-w-16 items-center justify-center rounded-lg bg-[#171A1F] px-3 text-sm font-semibold text-text-primary">
+          <div className="flex h-8 min-w-16 items-center justify-center rounded-lg bg-[#171A1F] px-3 text-sm font-semibold text-white">
             {amps}A
           </div>
         </div>

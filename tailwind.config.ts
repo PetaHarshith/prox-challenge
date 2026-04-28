@@ -6,16 +6,16 @@ const config: Config = {
     extend: {
       colors: {
         graphite: "#F4F2EC",
-        torch: "#B7F54A",
+        torch: "#7BAE24",
         steel: "#66707A",
         obsidian: "#171A1F",
         moss: "#FFFFFF",
-        acid: "#B7F54A",
-        brass: "#B7F54A",
-        sage: "#34C759",
+        acid: "#7BAE24",
+        brass: "#7BAE24",
+        sage: "#5F8F1F",
         ember: "#F59E0B",
         card: "#FFFFFF",
-        "card-soft": "#F3F1EA",
+        "card-soft": "#F2F0EA",
         "text-primary": "#171A1F",
         "text-secondary": "#66707A"
       },

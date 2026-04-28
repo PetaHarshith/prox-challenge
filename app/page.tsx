@@ -379,7 +379,7 @@ export default function Home() {
   }
 
   return (
-    <main className="relative flex h-screen min-h-[720px] flex-col overflow-hidden bg-[radial-gradient(circle_at_32%_18%,rgba(183,245,74,0.12),transparent_58%),#F4F2EC] text-text-primary">
+    <main className="relative flex h-screen min-h-[720px] flex-col overflow-hidden bg-[radial-gradient(circle_at_32%_18%,rgba(123,174,36,0.1),transparent_58%),#F4F2EC] text-text-primary">
       <header className="relative z-10 flex h-12 shrink-0 items-center justify-between border-b border-black/[0.08] bg-[#F8F7F2]/90 px-5 text-text-primary backdrop-blur-md">
         <div className="relative z-10 flex min-w-0 items-center gap-2.5">
           <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-black/[0.08] bg-[#171A1F] text-brass">
