@@ -12,7 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.9",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.77",
     "@anthropic-ai/sdk": "^0.62.0",
     "lucide-react": "^0.468.0",
     "next": "^16.2.4",

@@ -94,6 +94,20 @@ export type VulcanAgentResult = {
   toolCalls: number;
 };
 
+// Vercel and other serverless environments have a read-only filesystem
+// except for /tmp. The Claude Agent SDK defaults to ~/.claude for config
+// and debug logs, which fails with EROFS on Vercel. Pointing both to /tmp
+// keeps the SDK happy without changing any agent behaviour.
+if (!process.env.CLAUDE_CONFIG_DIR) {
+  process.env.CLAUDE_CONFIG_DIR = "/tmp/.claude";
+}
+if (!process.env.CLAUDE_CODE_DEBUG_LOGS_DIR) {
+  process.env.CLAUDE_CODE_DEBUG_LOGS_DIR = "/tmp/.claude/debug";
+}
+if (!process.env.HOME) {
+  process.env.HOME = "/tmp";
+}
+
 export async function runVulcanAgent(params: {
   prompt: string;
   systemPrompt: string;
