@@ -63,7 +63,7 @@ The Claude Agent SDK integration is in `lib/vulcanAgent.ts`. It creates a produc
 - `lookup_vulcan_manual_context`: returns curated manual facts and page references.
 - `lookup_vulcan_visual_knowledge`: returns facts extracted from diagrams, charts, and manual images.
 
-The main chat route is `app/api/chat/route.ts`. It streams responses as NDJSON. It also sends a preview event early so the visual workspace can prepare the right diagram before the full answer finishes.
+The main chat route is `app/api/chat/route.ts`. It streams small JSON events to the browser. It also sends a preview event early so the visual workspace can prepare the right diagram before the full answer finishes.
 
 Uploaded images use a separate Claude vision step. The image is compared against the weld diagnosis knowledge, then the diagnosis is passed into the main agent response. That lets the final answer include visible clues, likely issue, confidence, checks, and fixes.
 

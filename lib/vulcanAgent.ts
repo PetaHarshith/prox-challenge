@@ -20,7 +20,9 @@ const PLANNER_INTENTS: PlannerIntent[] = [
   "weld_image_diagnosis",
   "manual_image_question",
   "wire_loading",
-  "front_panel_controls"
+  "front_panel_controls",
+  "explanation",
+  "general"
 ];
 
 const WELD_PROCESSES: WeldProcess[] = ["mig", "flux-core", "tig", "stick", "unknown"];

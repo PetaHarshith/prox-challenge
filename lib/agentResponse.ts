@@ -13,6 +13,7 @@ import {
   retrieveManualContext,
   troubleshootingChecks
 } from "./manualKnowledge";
+import { isExplanationQuestion } from "./outputPlanner";
 import type { ChecklistItem } from "./quickSetup";
 import type { SmartWarning } from "./smartWarnings";
 
@@ -174,6 +175,21 @@ export function localGroundedResponse(question: string): AgentResponse {
   const process = context.process;
   const visualType = context.visualType;
 
+  // Explanation / consequence questions ("what happens if polarity is
+  // reversed", "why does duty cycle matter") must NOT route to the polarity /
+  // troubleshooting / settings branches below \u2014 those return canonical
+  // setup answers + checklists, which is the wrong shape for an explanation.
+  // Return a minimal grounded text response so Claude's consequence prose is
+  // preserved in normalizeAgentResponse without auto-attached visuals.
+  if (isExplanationQuestion(question)) {
+    return {
+      answer: "",
+      visualType: "text",
+      process,
+      refs: context.refs
+    };
+  }
+
   if (visualType === "polarity" && process !== "unknown") {
     const setup = polaritySetups[process];
     return {
@@ -324,11 +340,23 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
     visualType: (parsed?.visualType ?? fallback.visualType) as VisualType
   };
 
+  // Explanation / consequence questions skip every auto-attach below: no
+  // setup-image fan-out, no settings recommendation, no safety-critical
+  // setup enforcer (which would replace Claude's consequence prose with the
+  // canonical setup recipe whenever the answer mentions the WRONG polarity
+  // \u2014 which is exactly what the user is asking about), and no duty-cycle /
+  // polarity prepends further down. Strip the checklist too so the chat
+  // bubble doesn't render a pre-weld checklist underneath an explanation.
+  const explanationMode = isExplanationQuestion(question);
+  if (explanationMode) {
+    merged.checklist = undefined;
+  }
+
   if (merged.visualType === "duty-cycle") merged.dutyCycleRows = dutyCycleRows;
-  if (merged.visualType === "polarity" && merged.process !== "unknown" && !merged.manualImages?.length) {
+  if (!explanationMode && merged.visualType === "polarity" && merged.process !== "unknown" && !merged.manualImages?.length) {
     merged.manualImages = [manualImages[processManualImageIndex[merged.process]]];
   }
-  if (merged.visualType === "settings" && !merged.settingRecommendation) {
+  if (!explanationMode && merged.visualType === "settings" && !merged.settingRecommendation) {
     const process = merged.process === "unknown" ? "mig" : merged.process;
     merged.settingRecommendation = recommendSettings({
       process,
@@ -337,7 +365,7 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
       inputVoltage: "240V"
     });
   }
-  if (merged.visualType === "polarity" && merged.process !== "unknown") {
+  if (!explanationMode && merged.visualType === "polarity" && merged.process !== "unknown") {
     merged.answer = enforceSafetyCriticalSetup(merged.process, merged.answer);
   }
 
@@ -356,6 +384,7 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
   }
 
   if (
+    !explanationMode &&
     merged.visualType === "duty-cycle" &&
     duty &&
     !startsWithDirectAnswer(merged.answer) &&
@@ -365,13 +394,14 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
   }
 
   if (
+    !explanationMode &&
     merged.visualType === "polarity" &&
     merged.process !== "unknown" &&
     !startsWithDirectAnswer(merged.answer) &&
     !answerAlreadyCoversPolarity(merged.answer)
   ) {
     const setup = polaritySetups[merged.process];
-    merged.answer = `${processLabel(merged.process)} setup: **${setup.positive} → +** and **${setup.negative} → −**.\n\n${merged.answer}`;
+    merged.answer = `${processLabel(merged.process)} setup: **${setup.positive} \u2192 +** and **${setup.negative} \u2192 \u2212**.\n\n${merged.answer}`;
   }
 
   return merged;

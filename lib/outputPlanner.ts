@@ -12,6 +12,7 @@ export type PlannerIntent =
   | "manual_image_question"
   | "wire_loading"
   | "front_panel_controls"
+  | "explanation"
   | "general";
 
 export type PlannerVisualType =
@@ -93,6 +94,34 @@ const VAGUE_TROUBLE_RE =
 
 const PROCESS_SELECTION_RE =
   /\bchoose\b|\bwhich process\b|\bwhat process\b|\bcompare\b|\bbest process\b|\bshould i use\b|\bdifference between\b|\b(mig|tig|flux(?:-?core)?|stick)\s+(vs\.?|versus)\s+(mig|tig|flux(?:-?core)?|stick)\b|\bdon'?t have gas\b/;
+
+// Explanation / consequence questions. These ask "what happens if ...", "why
+// ...", "what does X cause/mean/affect", "what are the consequences of ...".
+// They must NOT be routed to setup/duty/troubleshooting/settings — those
+// branches would attach a checklist or setup diagram and Claude would write
+// procedure steps instead of answering the actual question. The explanation
+// branch wins over all visual intents so the response is consequence-first
+// prose with optional "Correct setup:" / "Why:" / "Next:" lines.
+const EXPLANATION_RE =
+  /\bwhat happens (?:if|when|after|while)\b|\bwhat (?:does|do) [a-z0-9 \-\/'\u2019]{1,40}(?:cause|mean|affect|do to)\b|\bwhat does (?:it|that) mean\b|\bwhat (?:is|are) the (?:effect|effects|impact|impacts|consequence|consequences|result|results)\b|\bwhy (?:does|do|is|are|would|should|can[\'\u2019]?t|won[\'\u2019]?t|doesn[\'\u2019]?t|don[\'\u2019]?t)\b|\bwhy do i need\b/;
+
+// Phrases that pull a question OUT of the explanation branch even when the
+// user also asks "why" / "what happens if". Lets a combined question like
+// "why is my weld cold and how do I fix it" still surface the troubleshooting
+// flow. Keep this list narrow — we only override on explicit fix / setup /
+// step-by-step requests.
+const EXPLAIN_OVERRIDE_RE =
+  /\bhow (?:do i|to|can i|should i) (?:fix|repair|resolve|correct|set ?up|wire|connect)\b|\bwalk me through\b|\bshow me (?:the )?(?:steps|setup|diagram|wiring)\b|\bstep[- ]by[- ]step\b/;
+
+// True when the message is asking for an explanation / consequence rather
+// than a setup, duty-cycle, troubleshooting, or settings answer. Exported so
+// the agent-response normalizer can skip auto-attached setup recipes for
+// explanation questions.
+export function isExplanationQuestion(message: string): boolean {
+  const lower = message.toLowerCase();
+  if (EXPLAIN_OVERRIDE_RE.test(lower)) return false;
+  return EXPLANATION_RE.test(lower);
+}
 
 // "Show / display / open / pull up / give me ..." paired with a visual noun
 // (image, diagram, visual, manual page, picture, photo, figure, chart,
@@ -178,7 +207,26 @@ export function planOutput({
     };
   }
 
-  // 3. Setup / polarity (BEFORE process_selection so a TIG/MIG mention does not
+  // 3. Explanation / consequence ("what happens if polarity is reversed",
+  //    "why does flux-core not need gas", "what does CTWD affect"). Wins over
+  //    setup/duty/troubleshooting/settings so the answer is consequence-first
+  //    prose with no auto-attached checklist or setup diagram. The override
+  //    inside isExplanationQuestion lets combined questions like "why is my
+  //    weld cold and how do I fix it" still fall through to troubleshooting.
+  if (isExplanationQuestion(message)) {
+    return {
+      intent: "explanation",
+      process,
+      slots,
+      requiredFacts: ["Explain the consequence or reason in 1\u20132 sentences", "Optional corrective setup or next step"],
+      visualType: "none",
+      visualId: undefined,
+      needsClaudeVision: false,
+      needsClarification: false
+    };
+  }
+
+  // 4. Setup / polarity (BEFORE process_selection so a TIG/MIG mention does not
   //    trigger the comparison matrix). Skipped when the same message also
   //    carries an explicit defect noun ("porosity", "spatter") or the verb
   //    "troubleshoot" — those phrasings ("troubleshoot mig setup porosity")
@@ -359,6 +407,13 @@ export function planVisuals(message: string, hasUploadedImage: boolean): Planner
   // Manual image / visual request — short-circuit so the workspace shows the
   // indexed manual page only (no setup diagram, no checklist).
   if (isManualImageRequest(lower)) return ["manual_image_card"];
+
+  // Explanation / consequence questions — no auto-attached visuals. Answer
+  // is consequence-first prose. The user can ask a follow-up like "how do I
+  // fix it" or "show me the setup" to get the relevant visual on the next
+  // turn (those phrases are picked up by EXPLAIN_OVERRIDE_RE so a combined
+  // question still routes through the visual branches below).
+  if (isExplanationQuestion(message)) return [];
 
   const visuals: PlannerVisualType[] = [];
 
