@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { AgentResponseSchema, localGroundedResponse, normalizeAgentResponse, type AgentResponse, type VisualSpec } from "@/lib/agentResponse";
 import { nextConversationState, resolveConversationalQuestion, type ConversationState } from "@/lib/conversationState";
 import {
+  dedupeRefs,
   dutyCycleRows,
   manualImages,
   ownerRef,
@@ -643,14 +644,7 @@ async function runChatPipeline(
     const def = getDefinitionContextSnippets(question);
     if (def.snippets.length) {
       context.snippets.push(...def.snippets);
-      const seen = new Set(context.refs.map((r) => `${r.source}-${r.title}`));
-      for (const r of def.refs) {
-        const key = `${r.source}-${r.title}`;
-        if (!seen.has(key)) {
-          context.refs.push(r);
-          seen.add(key);
-        }
-      }
+      context.refs = dedupeRefs([...context.refs, ...def.refs]);
     }
   }
 
@@ -974,8 +968,8 @@ async function runChatPipeline(
         response.answer = `${response.answer}\n\nCommon mistake:\n- Over-trusting one photo. Verify polarity, shielding/feed, and clean metal before changing technique.\n\nNext:\n1. Run the checks listed in the diagnosis panel.\n2. Make a short test bead.\n3. Share a clearer close-up if results are still inconsistent.`;
       }
     }
-    if (indexedVisual && !response.refs.some((ref) => ref.title === indexedVisual.title)) {
-      response.refs = [...response.refs, getManualImageRef(indexedVisual)];
+    if (indexedVisual) {
+      response.refs = dedupeRefs([...response.refs, getManualImageRef(indexedVisual)]);
     }
     if (outputPlan.intent === "troubleshooting" && !response.troubleshootingItems?.length) {
       response.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);

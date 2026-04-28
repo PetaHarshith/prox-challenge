@@ -89,6 +89,23 @@ export const selectionRef = (title: string): ManualRef => ({
   url: manualRefs.selection
 });
 
+// Dedupe refs by their visible chip identity (source + page + url). Two refs
+// with different titles but the same source/page render as identical chips
+// (e.g. "Owner's Manual p.7" appearing twice), so we keep the first
+// occurrence and drop later duplicates. Use this at every render boundary
+// and at every place refs from multiple builders get merged.
+export function dedupeRefs(refs: ManualRef[]): ManualRef[] {
+  const seen = new Set<string>();
+  const out: ManualRef[] = [];
+  for (const ref of refs) {
+    const key = `${ref.source}|${ref.page ?? ""}|${ref.url ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(ref);
+  }
+  return out;
+}
+
 export const polaritySetups: Record<Exclude<WeldProcess, "unknown">, PolaritySetup> = {
   mig: {
     process: "mig",

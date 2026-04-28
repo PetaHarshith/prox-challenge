@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { DutyCycleRow, ManualImage, ManualRef, SettingRecommendation, VisualType, WeldProcess } from "./manualKnowledge";
 import {
+  dedupeRefs,
   dutyCycleRows,
   extractMaterial,
   extractThickness,
@@ -315,7 +316,7 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
   const merged: AgentResponse = {
     ...fallback,
     ...parsed,
-    refs: parsed?.refs?.length ? parsed.refs : fallback.refs,
+    refs: dedupeRefs(parsed?.refs?.length ? parsed.refs : fallback.refs),
     manualImages: parsedManualImages ?? fallback.manualImages,
     checklist: parsed?.checklist?.length ? parsed.checklist : fallback.checklist,
     settingRecommendation: parsed?.settingRecommendation ?? fallback.settingRecommendation,

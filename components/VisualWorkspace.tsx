@@ -11,7 +11,7 @@ import { ProcessSelectionMatrix } from "@/components/ProcessSelectionMatrix";
 import { SettingsRecommendationCard } from "@/components/SettingsRecommendationCard";
 import { WarningCard } from "@/components/WarningCard";
 import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
-import { dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
+import { dedupeRefs, dutyCycleRows, recommendSettings, type ManualRef, type WeldProcess } from "@/lib/manualKnowledge";
 import { stripInlineMarkdown } from "@/lib/textFormat";
 
 type WorkspaceResponse = AgentResponse & { warning?: string; usedModel?: string };
@@ -267,13 +267,15 @@ function WorkspaceSection({ children, refs, title }: { children: ReactNode; refs
 }
 
 function SourceSummary({ refs }: { refs: ManualRef[] }) {
+  const uniqueRefs = dedupeRefs(refs);
+  if (!uniqueRefs.length) return null;
   return (
     <div className="rounded-lg border border-black/[0.08] bg-card px-3 py-2">
       <div className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-text-secondary">Sources</div>
       <div className="flex flex-wrap gap-1.5">
-        {refs.map((ref) => (
+        {uniqueRefs.map((ref) => (
           <a
-            key={`${ref.source}-${ref.title}`}
+            key={`${ref.source}|${ref.page ?? ""}|${ref.url ?? ""}`}
             href={ref.url}
             target="_blank"
             rel="noreferrer"
