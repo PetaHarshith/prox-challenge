@@ -345,11 +345,18 @@ export function normalizeAgentResponse(question: string, parsed?: PartialParsedA
   // setup enforcer (which would replace Claude's consequence prose with the
   // canonical setup recipe whenever the answer mentions the WRONG polarity
   // \u2014 which is exactly what the user is asking about), and no duty-cycle /
-  // polarity prepends further down. Strip the checklist too so the chat
-  // bubble doesn't render a pre-weld checklist underneath an explanation.
+  // polarity prepends further down. Also strip every troubleshooting-shaped
+  // field so the chat bubble's legacy fallback (visualType==="troubleshooting"
+  // + troubleshootingItems/checklist) cannot mount a TroubleshootingFlow
+  // under a pure explanation answer. isExplanationQuestion already returns
+  // false when EXPLAIN_OVERRIDE_RE matches ("how do I fix", "walk me
+  // through", "show me the steps/setup"), so combined queries like "why is
+  // my weld cold and how do I fix it" still flow through troubleshooting.
   const explanationMode = isExplanationQuestion(question);
   if (explanationMode) {
     merged.checklist = undefined;
+    merged.troubleshootingItems = undefined;
+    if (merged.visualType === "troubleshooting") merged.visualType = "text";
   }
 
   if (merged.visualType === "duty-cycle") merged.dutyCycleRows = dutyCycleRows;
