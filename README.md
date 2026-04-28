@@ -2,7 +2,7 @@
 
 A multimodal support agent for the Vulcan OmniPro 220 welder.
 
-Hosted demo: https://prox-challenge-gamma.vercel.app/
+Hosted demo: <https://prox-challenge-gamma.vercel.app/>
 
 ## What this is
 
