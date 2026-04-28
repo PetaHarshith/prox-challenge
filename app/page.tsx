@@ -2,17 +2,24 @@
 
 import { type CSSProperties, FormEvent, type PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
-import { Cpu, Eye, ImagePlus, Send, Wand2, X } from "lucide-react";
+import { Cpu, Eye, ImagePlus, Send, ShieldAlert, Wand2, X } from "lucide-react";
 import { SourceChips } from "@/components/SourceChips";
 import { MarkdownContent } from "@/components/MarkdownContent";
 import { VisualWorkspace } from "@/components/VisualWorkspace";
 import { QuickSetupForm } from "@/components/QuickSetupForm";
 import { TroubleshootingFlow } from "@/components/TroubleshootingFlow";
 import { PreWeldChecklist } from "@/components/PreWeldChecklist";
+import { PreWeldChecklistPager, type PreWeldChecklistEntry } from "@/components/PreWeldChecklistPager";
+import { MermaidArtifact } from "@/components/MermaidArtifact";
+import { SetupComparisonTable } from "@/components/SetupComparisonTable";
+import { MicButton } from "@/components/MicButton";
+import { FaultCodeBrowser } from "@/components/FaultCodeBrowser";
+import { FaultCodeCard } from "@/components/FaultCodeCard";
 import type { AgentResponse, VisualSpec } from "@/lib/agentResponse";
 import type { ConversationState } from "@/lib/conversationState";
 import type { CachedResponseData } from "@/lib/prebuiltAnswers";
 import { recommendFromAnswers, type QuickSetupAnswers } from "@/lib/quickSetup";
+import type { FaultCode } from "@/lib/faultCodes";
 
 type ChatTurn = {
   id: string;
@@ -20,6 +27,9 @@ type ChatTurn = {
   content: string;
   imagePreview?: string;
   response?: CachedResponseData;
+  // Set when the turn was synthesized from the Fault Code browser. Renders a
+  // FaultCodeCard inline below the prose; no LLM call is made for these turns.
+  faultCode?: FaultCode;
 };
 
 // Visual kinds that render inline in the chat bubble (not the workspace), so
@@ -67,6 +77,39 @@ function pickPreWeldChecklist(response: CachedResponseData | undefined) {
   return spec && spec.kind === "pre_weld_checklist" ? spec : undefined;
 }
 
+// Collects every pre_weld_checklist the server emitted (in order). When the
+// list has 2+ entries the chat bubble renders the PreWeldChecklistPager so
+// the user can flip between per-process checklists with arrows instead of
+// scrolling through a stacked wall of them.
+function pickAllPreWeldChecklists(response: CachedResponseData | undefined): PreWeldChecklistEntry[] {
+  if (!response?.visuals?.length) return [];
+  const seen = new Set<string>();
+  const out: PreWeldChecklistEntry[] = [];
+  for (const v of response.visuals) {
+    if (v.kind === "pre_weld_checklist" && !seen.has(v.process)) {
+      seen.add(v.process);
+      out.push({ process: v.process, items: v.items, title: v.title });
+    }
+  }
+  return out;
+}
+
+// Collects every process the server emitted a setup_diagram for. When the
+// list has 2+ entries the user asked about multiple setups, so the inline
+// SetupComparisonTable mounts below the prose.
+function pickSetupComparisonProcesses(response: CachedResponseData | undefined) {
+  if (!response?.visuals?.length) return [] as Array<"mig" | "flux-core" | "tig" | "stick">;
+  const seen = new Set<string>();
+  const out: Array<"mig" | "flux-core" | "tig" | "stick"> = [];
+  for (const v of response.visuals) {
+    if (v.kind === "setup_diagram" && !seen.has(v.process)) {
+      seen.add(v.process);
+      out.push(v.process);
+    }
+  }
+  return out;
+}
+
 // Builds a synthetic assistant response from the Quick Setup form so the
 // workspace gets a setup diagram + pre-weld checklist (and any deterministic
 // warnings) without an LLM call. Reuses the existing AgentResponse + VisualSpec
@@ -106,6 +149,22 @@ function buildQuickSetupResponse(answers: QuickSetupAnswers): { question: string
     refs: [],
     visuals,
     usedModel: "quick-setup"
+  };
+  return { question, response };
+}
+
+// Synthesises a chat turn from a fault picked in the FaultCodeBrowser. No LLM
+// call: the answer is a one-line lead-in and the FaultCodeCard renders the
+// rich detail. visualType is "text" so nothing extra mounts in the workspace.
+function buildFaultCodeResponse(fault: FaultCode): { question: string; response: CachedResponseData } {
+  const question = `What does the "${fault.label}" indicator mean and how do I recover?`;
+  const answer = `Here's what the **${fault.code}** indicator means on your OmniPro 220, and the steps to recover.`;
+  const response: CachedResponseData = {
+    answer,
+    visualType: "text",
+    process: "unknown",
+    refs: fault.refs,
+    usedModel: "fault-code-browser"
   };
   return { question, response };
 }
@@ -208,6 +267,7 @@ export default function Home() {
   // so the latest answer always wins by default.
   const [pinnedTurnId, setPinnedTurnId] = useState<string | null>(null);
   const [quickSetupOpen, setQuickSetupOpen] = useState(false);
+  const [faultBrowserOpen, setFaultBrowserOpen] = useState(false);
   const [workspaceWidth, setWorkspaceWidth] = useState(520);
   const fileRef = useRef<HTMLInputElement>(null);
   const activeRequestController = useRef<AbortController | null>(null);
@@ -246,6 +306,22 @@ export default function Home() {
       { id: crypto.randomUUID(), role: "assistant", content: response.answer, response }
     ]);
     setQuickSetupOpen(false);
+  }
+
+  function handleFaultSelect(fault: FaultCode) {
+    const { question, response } = buildFaultCodeResponse(fault);
+    setTurns((current) => [
+      ...current,
+      { id: crypto.randomUUID(), role: "user", content: question },
+      {
+        id: crypto.randomUUID(),
+        role: "assistant",
+        content: response.answer,
+        response,
+        faultCode: fault
+      }
+    ]);
+    setFaultBrowserOpen(false);
   }
 
   const apiMessages = useMemo(
@@ -574,8 +650,22 @@ export default function Home() {
                   turn.role === "assistant" && !isStreamingThisTurn
                     ? pickTroubleshootingFlow(turn.response, priorUserContent)
                     : undefined;
+                const preWeldEntries =
+                  turn.role === "assistant" && !isStreamingThisTurn ? pickAllPreWeldChecklists(turn.response) : [];
                 const preWeldSpec =
-                  turn.role === "assistant" && !isStreamingThisTurn ? pickPreWeldChecklist(turn.response) : undefined;
+                  preWeldEntries.length === 1
+                    ? preWeldEntries[0]
+                    : preWeldEntries.length === 0 && turn.role === "assistant" && !isStreamingThisTurn
+                      ? pickPreWeldChecklist(turn.response)
+                      : undefined;
+                const mermaidArtifact =
+                  turn.role === "assistant" && !isStreamingThisTurn && turn.response?.artifact?.type === "mermaid"
+                    ? turn.response.artifact
+                    : undefined;
+                const setupComparisonProcesses =
+                  turn.role === "assistant" && !isStreamingThisTurn
+                    ? pickSetupComparisonProcesses(turn.response)
+                    : [];
                 return (
                   <article key={turn.id} className={turn.role === "user" ? "flex justify-end" : "flex justify-start"}>
                     <div
@@ -590,6 +680,14 @@ export default function Home() {
                       ) : (
                         <MarkdownContent content={turn.content} />
                       )}
+                      {setupComparisonProcesses.length >= 2 ? (
+                        <div
+                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
+                          style={{ animationDelay: "120ms" }}
+                        >
+                          <SetupComparisonTable processes={setupComparisonProcesses} />
+                        </div>
+                      ) : null}
                       {troubleFlow ? (
                         <div
                           className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
@@ -602,7 +700,14 @@ export default function Home() {
                           />
                         </div>
                       ) : null}
-                      {preWeldSpec ? (
+                      {preWeldEntries.length >= 2 ? (
+                        <div
+                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
+                          style={{ animationDelay: troubleFlow ? "260ms" : "120ms" }}
+                        >
+                          <PreWeldChecklistPager entries={preWeldEntries} />
+                        </div>
+                      ) : preWeldSpec ? (
                         <div
                           className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
                           style={{ animationDelay: troubleFlow ? "260ms" : "120ms" }}
@@ -612,6 +717,29 @@ export default function Home() {
                             items={preWeldSpec.items}
                             title={preWeldSpec.title}
                           />
+                        </div>
+                      ) : null}
+                      {mermaidArtifact ? (
+                        <div
+                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
+                          style={{
+                            animationDelay:
+                              troubleFlow && (preWeldSpec || preWeldEntries.length >= 2)
+                                ? "400ms"
+                                : troubleFlow || preWeldSpec || preWeldEntries.length >= 2
+                                  ? "260ms"
+                                  : "120ms"
+                          }}
+                        >
+                          <MermaidArtifact content={mermaidArtifact.content} />
+                        </div>
+                      ) : null}
+                      {turn.faultCode ? (
+                        <div
+                          className="mt-3 animate-[checklist-in_420ms_ease-out_both]"
+                          style={{ animationDelay: "120ms" }}
+                        >
+                          <FaultCodeCard fault={turn.faultCode} />
                         </div>
                       ) : null}
                       {turn.id === streamingTurnId ? (
@@ -633,7 +761,7 @@ export default function Home() {
                           <span>{turn.response.highlights.warning}</span>
                         </div>
                       ) : null}
-                      {turn.response?.refs?.length ? (
+                      {turn.response?.refs?.length && !turn.faultCode ? (
                         <div className="mt-3">
                           <SourceChips refs={turn.response.refs} />
                         </div>
@@ -684,6 +812,17 @@ export default function Home() {
                     </span>
                     Quick Setup
                   </button>
+                  <button
+                    type="button"
+                    disabled={isLoading}
+                    onClick={() => setFaultBrowserOpen(true)}
+                    className="inline-flex items-center gap-2 rounded-full border border-ember/40 bg-ember/10 px-3.5 py-1.5 text-xs font-semibold text-ember hover:bg-ember/15 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full bg-ember/15 text-ember">
+                      <ShieldAlert size={12} />
+                    </span>
+                    Fault Codes
+                  </button>
                   {suggestionChips.slice(0, 3).map((chip) => (
                     <button
                       key={chip.label}
@@ -719,6 +858,12 @@ export default function Home() {
                   >
                     <ImagePlus size={20} />
                   </button>
+                  <MicButton
+                    disabled={isLoading}
+                    onTranscript={(text) =>
+                      setInput((current) => (current.trim() ? `${current} ${text}` : text))
+                    }
+                  />
                   <textarea
                     value={input}
                     onChange={(event) => setInput(event.target.value)}
@@ -778,6 +923,11 @@ export default function Home() {
         open={quickSetupOpen}
         onClose={() => setQuickSetupOpen(false)}
         onSubmit={handleQuickSetupSubmit}
+      />
+      <FaultCodeBrowser
+        open={faultBrowserOpen}
+        onClose={() => setFaultBrowserOpen(false)}
+        onSelect={handleFaultSelect}
       />
     </main>
   );

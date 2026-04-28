@@ -112,6 +112,13 @@ export const AgentResponseSchema = z.object({
     process: z.string().optional(),
     key_setting: z.string().optional(),
     warning: z.string().optional()
+  }).optional(),
+  // Optional Claude-generated artifact (e.g., a Mermaid flowchart) rendered
+  // inline below the prose. Purely additive: the planner/intent/visuals
+  // pipeline ignores it; the chat bubble mounts it after streaming finishes.
+  artifact: z.object({
+    type: z.literal("mermaid"),
+    content: z.string()
   }).optional()
 });
 
@@ -492,6 +499,22 @@ function extractDutyCycleMatch(question: string) {
   }, rows[0]);
 }
 
+// True when the answer covers two or more process-specific setups (e.g. the
+// user asked "show me the flux-core setup and stick setup"). Used to skip
+// the single-process safety enforcer below, which would otherwise mistake
+// one process's correct polarity for the OTHER process's wrong polarity and
+// clobber the multi-process answer with a single canonical setup block.
+function mentionsMultipleProcessSetups(answer: string): boolean {
+  const lower = answer.toLowerCase();
+  const hits = [
+    /\bmig setup\b/.test(lower),
+    /\b(flux[\s-]?core)\s+setup\b/.test(lower),
+    /\btig setup\b/.test(lower),
+    /\bstick setup\b/.test(lower)
+  ].filter(Boolean).length;
+  return hits >= 2;
+}
+
 // Replaces the answer with the canonical setup procedure ONLY when the
 // answer contains a clearly WRONG polarity assertion for the process
 // (e.g., "ground clamp → negative" for flux-core). A concise correct
@@ -499,6 +522,10 @@ function extractDutyCycleMatch(question: string) {
 // preserved so the answer style rules (1–2 sentences for direct
 // questions) are not overridden.
 function enforceSafetyCriticalSetup(process: Exclude<WeldProcess, "unknown">, answer: string) {
+  // Multi-process answers (e.g. "flux-core setup and stick setup") naturally
+  // contain polarity assertions for the OTHER process that look "wrong" for
+  // this one. Bail out so the answer is preserved verbatim.
+  if (mentionsMultipleProcessSetups(answer)) return answer;
   const wrongPatterns: Record<Exclude<WeldProcess, "unknown">, RegExp[]> = {
     "flux-core": [
       /ground[^.\n]{0,40}(negative|→\s*[−-])/i,

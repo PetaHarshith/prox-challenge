@@ -179,8 +179,13 @@ export function planOutput({
   }
 
   // 3. Setup / polarity (BEFORE process_selection so a TIG/MIG mention does not
-  //    trigger the comparison matrix).
-  if (SETUP_RE.test(lower)) {
+  //    trigger the comparison matrix). Skipped when the same message also
+  //    carries an explicit defect noun ("porosity", "spatter") or the verb
+  //    "troubleshoot" — those phrasings ("troubleshoot mig setup porosity")
+  //    are diagnosis questions that happen to mention setup, not setup
+  //    questions, so we let the troubleshooting branch below own them.
+  const troubleTakesPrecedence = /\btroubleshoot(?:ing)?\b/.test(lower) || SPECIFIC_DEFECT_RE.test(lower);
+  if (SETUP_RE.test(lower) && !troubleTakesPrecedence) {
     const needsClarification = process === "unknown" && !conversationState?.pending;
     const setupVisualId = process !== "unknown" ? `${process}-setup-diagram` : undefined;
     return {
@@ -293,6 +298,37 @@ export function structuredCacheKey(plan: OutputPlan, message: string) {
 const WIRE_LOADING_RE = /\b(load(?:ing)?|spool|drive roller|wire feed compartment|wire tension|liner)\b/;
 const SETTINGS_RE = /\b(setting|settings|recommend|wire speed|voltage setting|thickness|gauge|ga\b|mild steel|stainless|aluminum|1\/8|3\/16|1\/4)\b/;
 
+// "All four setups", "every process", "show me all of them" — collective
+// phrasing that should expand to every welding process the welder supports.
+// Used by `extractMentionedProcesses` so the user does not have to enumerate.
+const ALL_PROCESSES_RE =
+  /\ball (?:four|4|the )?(?:setups?|processes?|modes?)\b|\bevery (?:process|setup|mode)\b|\b(?:all|each) of (?:them|the (?:four|4 )?(?:processes|setups))\b|\bfour processes\b|\bfour setups\b/;
+
+const ALL_PROCESSES: Array<Exclude<WeldProcess, "unknown">> = ["mig", "flux-core", "tig", "stick"];
+
+// Returns every welding process the user named, in order of first appearance.
+// Recognizes synonyms (gmaw, fcaw, gtaw, smaw, gasless, solid-core) and the
+// collective phrases captured by ALL_PROCESSES_RE (which expands to all four).
+// Shared by the API route (for visual fan-out) and the planner (for visual
+// triggering on multi-process explain/compare questions).
+export function extractMentionedProcesses(message: string): Array<Exclude<WeldProcess, "unknown">> {
+  const lower = message.toLowerCase();
+  if (ALL_PROCESSES_RE.test(lower)) return [...ALL_PROCESSES];
+  const patterns: Array<[Exclude<WeldProcess, "unknown">, RegExp]> = [
+    ["flux-core", /\bflux[\s-]?core(?:d)?\b|\bfcaw\b|\bgasless\b/g],
+    ["mig", /\bmig\b|\bgmaw\b|\bsolid[\s-]?core\b/g],
+    ["tig", /\btig\b|\bgtaw\b/g],
+    ["stick", /\bstick\b|\bsmaw\b/g]
+  ];
+  const hits: Array<{ process: Exclude<WeldProcess, "unknown">; index: number }> = [];
+  for (const [process, regex] of patterns) {
+    const match = regex.exec(lower);
+    if (match) hits.push({ process, index: match.index });
+  }
+  hits.sort((a, b) => a.index - b.index);
+  return hits.map((h) => h.process);
+}
+
 // Multi-visual planner: returns the ordered visuals to render for this message.
 // Always derived from the live message — never carries state from prior turns.
 //
@@ -344,6 +380,13 @@ export function planVisuals(message: string, hasUploadedImage: boolean): Planner
   if (isSetup && slots.process !== "unknown") visuals.push("setup_diagram");
   // Implied flux-core setup from "no gas / outdoors" + cable phrasing.
   else if (isSetup && /(no gas|don'?t have gas|outdoors|outside)/.test(lower)) visuals.push("setup_diagram");
+  // Multi-process explain / compare: when the user names 2+ processes (or
+  // says "all setups" / "every process"), force a setup_diagram so the
+  // workspace + chat-bubble comparison table render even without explicit
+  // setup keywords ("explain flux core and tig", "show me all four setups").
+  // Skipped on troubleshooting questions — a porosity/spatter question that
+  // happens to mention two processes is NOT a setup comparison.
+  else if (!isTrouble && extractMentionedProcesses(message).length >= 2) visuals.push("setup_diagram");
 
   if (isDuty) visuals.push("duty_cycle_matrix");
 

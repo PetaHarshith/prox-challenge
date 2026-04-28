@@ -16,7 +16,7 @@ import {
   type WeldProcess
 } from "@/lib/manualKnowledge";
 import { findManualImageById, getManualImageRef, type ManualImageIndexEntry } from "@/lib/manualImageIndex";
-import { planOutput, planVisuals, structuredCacheKey, type PlannerIntent, type PlannerVisualType } from "@/lib/outputPlanner";
+import { extractMentionedProcesses, planOutput, planVisuals, structuredCacheKey, type PlannerIntent, type PlannerVisualType } from "@/lib/outputPlanner";
 import type { VisualType } from "@/lib/manualKnowledge";
 import {
   getImageInterpretation,
@@ -25,6 +25,7 @@ import {
   weldDiagnosisKnowledge
 } from "@/lib/manualVisualKnowledge";
 import { detectSmartWarnings } from "@/lib/smartWarnings";
+import { buildTroubleshootingMermaid } from "@/lib/troubleshootingMermaid";
 import { runVulcanAgent, vulcanAgentToolNames } from "@/lib/vulcanAgent";
 
 export const runtime = "nodejs";
@@ -63,7 +64,18 @@ const systemPrompt = [
   "- Use real manual images whenever available. Never invent product visuals, \u201Ctypical welder\u201D layouts, fake diagrams, fake labels, or fake image details.",
   "- Generated diagrams (setup_diagram, duty cycle table) are allowed only when based on structured manual data (polaritySetups, dutyCycleRows).",
   "- If no grounded manual visual exists for the request, say so clearly instead of inventing one.",
-  "- An interactive troubleshooting flow and pre-weld checklist render inline below your prose in the chat bubble. When one is attached, keep prose to a maximum of 2 short sentences (diagnosis or context only) and let the checklist carry the steps. Do NOT restate, summarize, paraphrase, or preview the checklist items in prose. Never write phrases like 'follow these steps', 'here is the procedure', or numbered lists when a checklist is attached."
+  "- An interactive troubleshooting flow and pre-weld checklist render inline below your prose in the chat bubble. When one is attached, keep prose to a maximum of 2 short sentences (diagnosis or context only) and let the checklist carry the steps. Do NOT restate, summarize, paraphrase, or preview the checklist items in prose. Never write phrases like 'follow these steps', 'here is the procedure', or numbered lists when a checklist is attached.",
+  "- MULTI-PROCESS COMPARE: when the user asks about (or names) 2+ welding processes (e.g. 'explain flux core and tig', 'show me all four setups', 'compare MIG and stick'), a comparison table AND per-process pre-weld checklists render inline below your prose. In this case the `answer` field MUST be a markdown bullet list \u2014 one bullet per named process, in the order they were named, each bullet 1\u20132 short lines describing ONLY identity and use-case (what the process is and when to reach for it: indoor vs outdoor, materials, skill level, gas vs gasless). Bullet format: `- **MIG**: ...one or two short sentences...`. Example for two processes: `- **Flux-core**: Gasless and built for outdoor or drafty work on dirty mild steel.\\n- **TIG**: Precision process for thin steel, stainless, or aluminum indoors where bead appearance matters.` STRICT: do NOT mention sockets, polarity (positive/negative/+/\u2212), cable destinations, ground clamp routing, wire feed routing, electrode holder routing, gas pressure, CFH, or pre-weld steps in any bullet \u2014 every one of those facts is already in the table and checklists below your prose. No intro sentence, no closing tip, no headings \u2014 bullets only.",
+  "",
+  "ARTIFACTS (optional Mermaid diagram):",
+  "- ONLY include the optional `artifact` field when the user's latest message literally contains one of these trigger phrases (case-insensitive): \"flow\", \"flowchart\", \"decision tree\", \"diagram the steps\", or \"troubleshooting flow\". For every other question, omit `artifact` entirely.",
+  "- Use `flowchart TD` only. Keep it small and scannable: 4\u20137 nodes max, short labels (\u2264 4 words), no long sentences.",
+  "- When the trigger is \"troubleshooting flow\", \"decision tree\", or any troubleshooting/diagnosis question, the diagram MUST be a branching decision flow: use diamond-shaped decision nodes (`B{Is the gas on?}`) with TWO outgoing edges labeled with the literal words `Yes` and `No` (e.g. `B -->|Yes| C` and `B -->|No| D`). Do NOT produce a single linear chain for troubleshooting \u2014 every check should branch into a Yes path and a No path.",
+  "- For setup/process flows (\"diagram the steps\", \"flowchart for MIG setup\"), a linear chain of rectangular steps is fine; add Yes/No branches only when there's a real decision (e.g. \"Gas connected?\").",
+  "- Always use the literal words `Yes` and `No` on decision edges (not `OK`/`Fail`, not `True`/`False`) so the renderer can color them green/red.",
+  "- Focus only on the user\u2019s exact problem \u2014 do not include unrelated steps.",
+  "- Do not explain the diagram in detail in prose; the 1\u20132 sentence answer stands on its own.",
+  "- Shape: { \"type\": \"mermaid\", \"content\": \"<valid mermaid flowchart TD ...>\" }. The content must be valid Mermaid syntax with no surrounding code fences."
 ].join("\n");
 
 // Detects the generic "Use MIG / TIG / flux-core" comparison block when the
@@ -231,6 +243,13 @@ function buildVisualsFromPlan(
   const out: VisualSpec[] = [];
   const seen = new Set<string>();
   const slotProcess: WeldProcess = response.process;
+  // Multi-process awareness: if the question names two or more processes,
+  // emit a setup_diagram for each instead of just the planner's primary.
+  const mentioned = extractMentionedProcesses(question);
+  const setupProcesses: Exclude<WeldProcess, "unknown">[] =
+    mentioned.length >= 2
+      ? mentioned
+      : [slotProcess !== "unknown" ? slotProcess : "flux-core"];
 
   function pushManualImage(image: ManualImage | undefined, q: string) {
     if (!image) return;
@@ -242,11 +261,14 @@ function buildVisualsFromPlan(
 
   for (const v of plannedVisuals) {
     if (v === "setup_diagram") {
-      const proc: Exclude<WeldProcess, "unknown"> =
-        slotProcess !== "unknown" ? slotProcess : "flux-core";
-      out.push({ kind: "setup_diagram", process: proc });
-      const wiring = manualImages[processManualImageIndex[proc]];
-      pushManualImage(wiring, question);
+      for (const proc of setupProcesses) {
+        const key = `setup_diagram:${proc}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ kind: "setup_diagram", process: proc });
+        const wiring = manualImages[processManualImageIndex[proc]];
+        pushManualImage(wiring, question);
+      }
     } else if (v === "duty_cycle_matrix" && response.dutyCycleRows?.length) {
       out.push({
         kind: "duty_cycle",
@@ -293,8 +315,28 @@ function augmentVisualsWithGarageTools(
 ): VisualSpec[] {
   const out = [...visuals];
   const hasChecklist = out.some((v) => v.kind === "pre_weld_checklist");
+  // Pre-weld checklists are pre-build steps (cables, polarity, gas, wire).
+  // They are meaningless for troubleshooting / weld-image diagnosis questions
+  // ("porosity on flux-core", "my MIG bead looks bad"), so the entire
+  // checklist branch — single AND multi-process fan-out — is gated to
+  // setup-like intents only.
   const setupLikeIntent: PlannerIntent[] = ["setup", "polarity", "settings_recommendation"];
-  if (!hasChecklist && setupLikeIntent.includes(intent) && process !== "unknown") {
+  const checklistAllowed = setupLikeIntent.includes(intent);
+  // Multi-setup: when the planner emitted setup_diagrams for 2+ processes
+  // (multi-process explain/compare), emit one pre_weld_checklist per process
+  // so the chat-bubble pager can flip between them.
+  const setupProcesses: Array<Exclude<WeldProcess, "unknown">> = [];
+  for (const v of out) {
+    if (v.kind === "setup_diagram" && !setupProcesses.includes(v.process)) {
+      setupProcesses.push(v.process);
+    }
+  }
+  if (checklistAllowed && !hasChecklist && setupProcesses.length >= 2) {
+    const lastSetupIndex = out.map((v) => v.kind).lastIndexOf("setup_diagram");
+    const insertAt = lastSetupIndex >= 0 ? lastSetupIndex + 1 : out.length;
+    const checklists: VisualSpec[] = setupProcesses.map((p) => ({ kind: "pre_weld_checklist", process: p }));
+    out.splice(insertAt, 0, ...checklists);
+  } else if (checklistAllowed && !hasChecklist && process !== "unknown") {
     const setupIndex = out.findIndex((v) => v.kind === "setup_diagram");
     const checklist: VisualSpec = { kind: "pre_weld_checklist", process };
     if (setupIndex >= 0) {
@@ -350,6 +392,19 @@ Rules:
 
 function latestUserMessage(messages: ChatMessage[]) {
   return [...messages].reverse().find((message) => message.role === "user")?.content.trim() ?? "";
+}
+
+// Deterministic gate for Mermaid artifacts. The model is instructed to only
+// emit `artifact` when the user's message contains one of these phrases, but
+// we enforce it server-side as well so a misbehaving response can never leak
+// a diagram for a question that didn't ask for one. Troubleshooting answers
+// are also allowed because the route DETERMINISTICALLY synthesizes a Yes/No
+// decision tree from troubleshootingItems for every defect question.
+const MERMAID_TRIGGERS = ["flowchart", "decision tree", "diagram the steps", "troubleshooting flow", "flow"];
+function userRequestedDiagram(question: string, intent?: PlannerIntent): boolean {
+  if (intent === "troubleshooting") return true;
+  const lower = question.toLowerCase();
+  return MERMAID_TRIGGERS.some((phrase) => lower.includes(phrase));
 }
 
 function extractJson(text: string) {
@@ -711,6 +766,19 @@ async function runChatPipeline(
       ...fallback,
       manualImages: localImage ? [localImage] : fallback.manualImages
     };
+    if (outputPlan.intent === "troubleshooting" && !localResponse.troubleshootingItems?.length) {
+      localResponse.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
+    }
+    if (
+      outputPlan.intent === "troubleshooting" &&
+      !localResponse.artifact &&
+      localResponse.troubleshootingItems?.length
+    ) {
+      const mermaid = buildTroubleshootingMermaid(localResponse.troubleshootingItems, question);
+      if (mermaid) {
+        localResponse.artifact = { type: "mermaid", content: mermaid };
+      }
+    }
     const localPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
     const localBaseVisuals = buildVisualsFromPlan(localPlannedVisuals, localResponse, question);
     const localWarnings = detectSmartWarnings(question, localResponse.process);
@@ -911,6 +979,12 @@ async function runChatPipeline(
       ? { ...(partialData ?? {}), answer: claudeAnswer }
       : partialData;
     const response = normalizeAgentResponse(question, dataForNormalize);
+    // Strip any model-emitted Mermaid artifact unless the user's question
+    // literally contained one of the trigger phrases. Belt-and-suspenders for
+    // the ARTIFACTS rule in the system prompt.
+    if (response.artifact && !userRequestedDiagram(question, outputPlan.intent)) {
+      delete response.artifact;
+    }
     const linkedManual = indexedVisual ? manualImages.find((img) => img.src === indexedVisual.imagePath) : undefined;
     if (linkedManual && !response.manualImages?.length) {
       response.manualImages = [linkedManual];
@@ -945,6 +1019,20 @@ async function runChatPipeline(
     }
     if (outputPlan.intent === "troubleshooting" && !response.troubleshootingItems?.length) {
       response.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
+    }
+    // Deterministic Yes/No troubleshooting flowchart. Built from the same
+    // troubleshootingItems the inline TroubleshootingFlow uses, so the user
+    // gets a guaranteed-grounded decision tree on every defect question
+    // without having to type "troubleshooting flow".
+    if (
+      outputPlan.intent === "troubleshooting" &&
+      !response.artifact &&
+      response.troubleshootingItems?.length
+    ) {
+      const mermaid = buildTroubleshootingMermaid(response.troubleshootingItems, question);
+      if (mermaid) {
+        response.artifact = { type: "mermaid", content: mermaid };
+      }
     }
     // Always rebuild the visuals[] from the live plan so the workspace cannot
     // carry a stale visual from a prior turn.
@@ -983,6 +1071,19 @@ async function runChatPipeline(
       fallback.process,
       fallbackWarnings
     );
+    if (outputPlan.intent === "troubleshooting" && !fallback.troubleshootingItems?.length) {
+      fallback.troubleshootingItems = getTroubleshootingItems(question, outputPlan.slots.process);
+    }
+    if (
+      outputPlan.intent === "troubleshooting" &&
+      !fallback.artifact &&
+      fallback.troubleshootingItems?.length
+    ) {
+      const mermaid = buildTroubleshootingMermaid(fallback.troubleshootingItems, question);
+      if (mermaid) {
+        fallback.artifact = { type: "mermaid", content: mermaid };
+      }
+    }
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
     sink.write({
       type: "complete",

@@ -62,7 +62,7 @@ function configFor(process: Exclude<WeldProcess, "unknown">) {
     warning: "Wire feed disconnected",
     lines: [
       { label: "Ground clamp", color: "#4fb078", from: { x: 112, y: 310 }, to: "negative", active: true },
-        { label: "Electrode holder", color: "#B7F54A", from: { x: 112, y: 118 }, to: "positive", active: true }
+      { label: "Electrode holder", color: "#B7F54A", from: { x: 112, y: 118 }, to: "positive", active: true }
     ] satisfies DiagramLine[]
   };
 }
@@ -72,7 +72,13 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
   const setup = polaritySetups[process];
   const config = configFor(process);
   const secondaryConnectorLabel = process === "tig" ? "Torch" : process === "stick" ? "Electrode holder" : "Wire feed";
-  const secondaryPolarity = process === "stick" ? "+" : "−";
+  // Polarities are derived from the polaritySetups KB so the summary always
+  // matches the manual: MIG (DCEP) ground−/wire+, flux-core (DCEN) ground+/wire−,
+  // TIG (DCEN) ground+/torch−, stick (DCEP) ground−/electrode+. Ground and the
+  // secondary connector are always on opposite poles, so we read ground from
+  // setup.positive and invert for the secondary.
+  const groundPolarity = setup.positive.toLowerCase().includes("ground") ? "+" : "−";
+  const secondaryPolarity = groundPolarity === "+" ? "−" : "+";
 
   return (
     <section className="rounded-xl border border-black/[0.08] bg-card p-5 shadow-none">
@@ -184,7 +190,7 @@ export function CustomSetupDiagram({ process }: { process: WeldProcess }) {
       </svg>
 
       <div className="mt-4 space-y-2 rounded-xl border border-black/[0.08] bg-card-soft p-3 text-xs font-medium text-text-secondary">
-        <p><strong>Ground</strong> → {setup.positive.toLowerCase().includes("ground") ? "+" : "−"}</p>
+        <p><strong>Ground</strong> → {groundPolarity}</p>
         <p><strong>{secondaryConnectorLabel}</strong> → {secondaryPolarity}</p>
         {config.warning ? <p className="text-brass">{config.warning}</p> : null}
       </div>
