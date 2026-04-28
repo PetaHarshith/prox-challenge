@@ -99,6 +99,10 @@ export async function runVulcanAgent(params: {
   systemPrompt: string;
   model?: string;
   maxTurns?: number;
+  // When provided, the agent emits each text fragment Claude generates so the
+  // caller can stream output to the client in real time. The `text` field on
+  // the resolved result still contains the full final response.
+  onTextDelta?: (delta: string) => void;
 }): Promise<VulcanAgentResult> {
   const it = query({
     prompt: params.prompt,
@@ -115,7 +119,8 @@ export async function runVulcanAgent(params: {
       // SDK isolation mode: don't load user/project settings or CLAUDE.md.
       settingSources: [],
       persistSession: false,
-      maxTurns: params.maxTurns ?? 6
+      maxTurns: params.maxTurns ?? 6,
+      includePartialMessages: Boolean(params.onTextDelta)
     }
   });
 
@@ -124,7 +129,12 @@ export async function runVulcanAgent(params: {
   let durationMs = 0;
   let toolCalls = 0;
   for await (const msg of it) {
-    if (msg.type === "assistant") {
+    if (msg.type === "stream_event" && params.onTextDelta) {
+      const event = msg.event as { type?: string; delta?: { type?: string; text?: string } };
+      if (event.type === "content_block_delta" && event.delta?.type === "text_delta" && typeof event.delta.text === "string") {
+        params.onTextDelta(event.delta.text);
+      }
+    } else if (msg.type === "assistant") {
       for (const block of msg.message.content) {
         if (block.type === "tool_use") toolCalls += 1;
       }

@@ -365,6 +365,121 @@ function cleanProseAnswer(text: string): string {
   return out.trim();
 }
 
+// Streams the value of the `answer` field out of a JSON document as it
+// arrives from Claude. On each delta the buffer grows; we re-extract the
+// current answer and return only the new suffix so the client can append.
+// Tracks whether the closing quote of the answer string has been seen so
+// the route can signal "answer text is settled" to the client even though
+// Claude is still emitting the rest of the JSON (refs, visualType, etc.).
+// Falls back to streaming the raw buffer when Claude drifts off the JSON
+// contract and produces prose instead.
+class StreamingAnswerExtractor {
+  private buffer = "";
+  private emittedLen = 0;
+  private mode: "unknown" | "json" | "prose" = "unknown";
+  private answerComplete = false;
+
+  feed(delta: string): string {
+    this.buffer += delta;
+    if (this.mode === "unknown") {
+      const trimmed = this.buffer.trimStart();
+      if (trimmed.length === 0) return "";
+      // Treat fenced blocks as JSON-bearing too; the extractor will skip the
+      // fence and locate the `"answer"` key when it appears.
+      this.mode = trimmed.startsWith("{") || trimmed.startsWith("```") ? "json" : "prose";
+    }
+    const result =
+      this.mode === "json"
+        ? this.extractAnswerSoFar()
+        : { value: this.buffer, done: false };
+    if (result.done) this.answerComplete = true;
+    if (result.value.length > this.emittedLen) {
+      const out = result.value.slice(this.emittedLen);
+      this.emittedLen = result.value.length;
+      return out;
+    }
+    return "";
+  }
+
+  isAnswerComplete(): boolean {
+    return this.answerComplete;
+  }
+
+  private extractAnswerSoFar(): { value: string; done: boolean } {
+    const m = /"answer"\s*:\s*"/.exec(this.buffer);
+    if (!m) return { value: "", done: false };
+    let i = m.index + m[0].length;
+    let out = "";
+    while (i < this.buffer.length) {
+      const c = this.buffer[i];
+      if (c === "\\") {
+        const next = this.buffer[i + 1];
+        if (next === undefined) return { value: out, done: false };
+        out += next === "n" ? "\n" : next === "t" ? "\t" : next === "r" ? "\r" : next;
+        i += 2;
+        continue;
+      }
+      if (c === '"') return { value: out, done: true };
+      out += c;
+      i++;
+    }
+    return { value: out, done: false };
+  }
+}
+
+// NDJSON sink: each call to write() enqueues one JSON line on the stream so
+// the client can parse events incrementally. The route returns this stream
+// as the response body and writes status/preview/answer_delta/complete
+// events as work progresses.
+function createNdjsonStream() {
+  const encoder = new TextEncoder();
+  let controllerRef: ReadableStreamDefaultController<Uint8Array> | null = null;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      controllerRef = c;
+    }
+  });
+  return {
+    stream,
+    write(event: Record<string, unknown>) {
+      controllerRef?.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
+    },
+    close() {
+      try {
+        controllerRef?.close();
+      } catch {
+        // already closed
+      }
+    }
+  };
+}
+
+// Builds the lightweight preview response surfaced before Claude finishes
+// generating. Carries planner-driven visuals AND the manual refs from
+// retrieval so source chips appear immediately instead of popping in at the
+// very end with the `complete` event.
+function buildPreviewResponse(
+  question: string,
+  outputPlan: ReturnType<typeof planOutput>,
+  hasImage: boolean,
+  fallback: AgentResponse,
+  refs: AgentResponse["refs"]
+): AgentResponse {
+  const previewVisuals = buildVisualsFromPlan(
+    planVisuals(question, hasImage),
+    fallback,
+    question
+  );
+  return {
+    answer: "",
+    visualType: plannerVisualToUi[outputPlan.visualType],
+    process: fallback.process,
+    refs,
+    visuals: previewVisuals,
+    outputPlan
+  };
+}
+
 export async function POST(request: Request) {
   const body = (await request.json()) as ChatRequest;
   const rawQuestion = latestUserMessage(body.messages);
@@ -373,6 +488,33 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "A user message is required." }, { status: 400 });
   }
 
+  const sink = createNdjsonStream();
+  void runChatPipeline(body, rawQuestion, sink).catch((err) => {
+    console.error("[chat] pipeline crash", err);
+    sink.write({
+      type: "complete",
+      response: {
+        ...localGroundedResponse(rawQuestion),
+        warning: "The assistant hit an unexpected error. Please try again."
+      }
+    });
+    sink.close();
+  });
+
+  return new Response(sink.stream, {
+    headers: {
+      "Content-Type": "application/x-ndjson; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "X-Accel-Buffering": "no"
+    }
+  });
+}
+
+async function runChatPipeline(
+  body: ChatRequest,
+  rawQuestion: string,
+  sink: ReturnType<typeof createNdjsonStream>
+) {
   const resolved = resolveConversationalQuestion({
     messages: body.messages,
     question: rawQuestion,
@@ -394,6 +536,16 @@ export async function POST(request: Request) {
   const fallback = localGroundedResponse(question);
   const indexedVisual = findManualImageById(outputPlan.visualId);
   const visualFacts = indexedVisual ? indexedVisual.extractedFacts : [];
+
+  // Surface a preview response so the workspace can render the
+  // planner-driven visuals (setup diagram, duty-cycle table, etc.) once the
+  // answer starts streaming. Refs are intentionally omitted here so source
+  // chips attach only after the answer is fully written (they arrive with
+  // the `complete` event).
+  sink.write({
+    type: "preview",
+    response: buildPreviewResponse(question, outputPlan, Boolean(body.image?.data), fallback, [])
+  });
 
   // Drop the MIG-only gas/regulator check from the snippets sent to Claude
   // when the question is flux-core porosity. Flux-core is self-shielded, so
@@ -456,12 +608,17 @@ export async function POST(request: Request) {
     };
     const conversationState = nextConversationState(question, clarification, body.conversationState, resolved);
     console.log("[chat] clarification short-circuit for intent:", outputPlan.intent);
-    return NextResponse.json({
-      ...clarification,
-      conversationState,
-      usedModel: "planner-clarification" as const,
-      cacheKey
+    sink.write({
+      type: "complete",
+      response: {
+        ...clarification,
+        conversationState,
+        usedModel: "planner-clarification" as const,
+        cacheKey
+      }
     });
+    sink.close();
+    return;
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
@@ -495,7 +652,9 @@ export async function POST(request: Request) {
       cacheKey,
       warning: "Local mode is on. Add ANTHROPIC_API_KEY to .env and restart to enable Claude image reasoning."
     };
-    return NextResponse.json(responseData);
+    sink.write({ type: "complete", response: responseData });
+    sink.close();
+    return;
   }
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -605,7 +764,16 @@ export async function POST(request: Request) {
       ? `${prompt}\n\nPre-computed image diagnosis (from vision step):\n${JSON.stringify(imageDiagnosis)}`
       : prompt;
 
-    const callAgent = async (extraInstruction?: string) => {
+    // First-pass extractor: streams text deltas to the client as Claude
+    // generates the JSON response. We only stream the inside of the `answer`
+    // field so the client never sees raw JSON braces or other keys.
+    // Emits `answer_done` once when the extractor detects the closing quote
+    // of the answer field so the client can end the "streaming" indicator
+    // even though Claude is still emitting the JSON tail (visualType, refs,
+    // etc.). Cuts the perceived latency of the "slow tail" significantly.
+    const extractor = new StreamingAnswerExtractor();
+    let answerDoneSent = false;
+    const callAgent = async (extraInstruction?: string, stream = true) => {
       const finalPrompt = extraInstruction
         ? `${promptWithDiagnosis}\n\nIMPORTANT: ${extraInstruction}`
         : promptWithDiagnosis;
@@ -613,7 +781,17 @@ export async function POST(request: Request) {
         prompt: finalPrompt,
         systemPrompt,
         model,
-        maxTurns: 6
+        maxTurns: 6,
+        onTextDelta: stream
+          ? (delta) => {
+            const newText = extractor.feed(delta);
+            if (newText) sink.write({ type: "answer_delta", delta: newText });
+            if (!answerDoneSent && extractor.isAnswerComplete()) {
+              answerDoneSent = true;
+              sink.write({ type: "answer_done" });
+            }
+          }
+          : undefined
       });
     };
 
@@ -624,10 +802,14 @@ export async function POST(request: Request) {
 
     // Generic-response guard: if Claude returned a multi-process comparison
     // for what should be a specific question, retry once with a corrective
-    // instruction.
+    // instruction. Skip streaming on the retry so the client doesn't see two
+    // partial answers — the final `complete` event will replace the streamed
+    // first attempt with the corrected text.
     if (isGenericMultiProcessAnswer(answerText) && outputPlan.intent !== "process_selection") {
+      sink.write({ type: "answer_reset" });
       agentResult = await callAgent(
-        "Answer only the specific question. Do not compare all processes. Stay focused on what the user actually asked."
+        "Answer only the specific question. Do not compare all processes. Stay focused on what the user actually asked.",
+        false
       );
       text = agentResult.text;
       parsedJson = extractJson(text);
@@ -701,12 +883,16 @@ export async function POST(request: Request) {
     }
     const conversationState = nextConversationState(question, response, body.conversationState, resolved);
 
-    return NextResponse.json({
-      ...response,
-      conversationState,
-      usedModel: model,
-      cacheKey
+    sink.write({
+      type: "complete",
+      response: {
+        ...response,
+        conversationState,
+        usedModel: model,
+        cacheKey
+      }
     });
+    sink.close();
   } catch (error) {
     console.error(error);
     const fallbackPlannedVisuals = planVisuals(question, Boolean(body.image?.data));
@@ -720,8 +906,9 @@ export async function POST(request: Request) {
       fallbackWarnings
     );
     const conversationState = nextConversationState(question, fallback, body.conversationState, resolved);
-    return NextResponse.json(
-      {
+    sink.write({
+      type: "complete",
+      response: {
         ...fallback,
         visuals: fallbackVisuals,
         outputPlan,
@@ -729,9 +916,9 @@ export async function POST(request: Request) {
         usedModel: "local-fallback",
         cacheKey,
         warning: "Claude was unavailable, so I used the built-in setup data."
-      },
-      { status: 200 }
-    );
+      }
+    });
+    sink.close();
   }
 }
 

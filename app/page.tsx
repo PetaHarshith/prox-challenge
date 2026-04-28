@@ -161,6 +161,16 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [loadingPrompt, setLoadingPrompt] = useState<{ text: string; hasImage: boolean }>();
   const [conversationState, setConversationState] = useState<ConversationState>({});
+  // Holds the planner-driven preview response while Claude is still
+  // generating, so the visual workspace can swap from skeleton to the right
+  // diagrams once the first answer delta lands. Stays undefined while the
+  // workspace is still in skeleton mode so the transition is gated on real
+  // streaming output, not the planning phase.
+  const [streamingResponse, setStreamingResponse] = useState<CachedResponseData | undefined>(undefined);
+  // Tracks the assistant turn whose JSON tail is still arriving so the chat
+  // bubble can show a "writing" indicator until the entire payload (answer +
+  // reasoning_summary / "Why this answer" + refs) has landed via `complete`.
+  const [streamingTurnId, setStreamingTurnId] = useState<string | null>(null);
   // Lightweight visual history: when the user clicks "View visual" on an older
   // assistant message, pin its turn id so the workspace shows that message's
   // saved visual payload. Cleared whenever a fresh assistant response arrives
@@ -243,7 +253,10 @@ export default function Home() {
     [pinnedTurnId, turns]
   );
 
-  const displayedResponse = pinnedTurn?.response ?? latestResponse;
+  // While streaming, the in-flight preview takes priority over any prior
+  // turn's response so the workspace updates with the new question's visuals
+  // immediately instead of holding stale ones from the previous answer.
+  const displayedResponse = pinnedTurn?.response ?? streamingResponse ?? latestResponse;
 
   // When viewing a pinned visual, also surface the user question that produced
   // it so components like TroubleshootingFlow show the matching symptom header.
@@ -310,23 +323,120 @@ export default function Home() {
         })
       });
 
-      const data = (await response.json()) as AgentResponse & { warning?: string; usedModel?: string; conversationState?: ConversationState; cacheHit?: boolean };
+      if (!response.body) throw new Error("No response body");
 
-      // Cache the response if no image (image reasoning results shouldn't be cached)
-      if (!image) {
-        clientCache.set(cacheKey, data);
-      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantTurnId: string | null = null;
+      let accumulatedText = "";
+      let previewResponse: CachedResponseData | undefined;
+      let answerDone = false;
 
-      setConversationState(data.conversationState ?? {});
-      setTurns((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content: data.answer,
-          response: data
+      // Auto-scroll on every delta so the latest streamed text stays in view.
+      // Uses requestAnimationFrame + instant scroll so it tracks the stream
+      // without smooth-scroll fighting itself on rapid updates.
+      const scrollToBottom = () => {
+        if (typeof window === "undefined") return;
+        window.requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: "auto", block: "end" });
+        });
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          let event: { type: string; response?: CachedResponseData; delta?: string };
+          try {
+            event = JSON.parse(line);
+          } catch {
+            continue;
+          }
+
+          if (event.type === "preview" && event.response) {
+            // Hold the preview locally — the workspace stays in skeleton
+            // until the first answer delta lands so the visual transition
+            // and the streaming text appear together, not separately.
+            previewResponse = event.response;
+          } else if (event.type === "answer_delta" && typeof event.delta === "string") {
+            const delta = event.delta;
+            if (!assistantTurnId) {
+              const id = crypto.randomUUID();
+              assistantTurnId = id;
+              accumulatedText = delta;
+              setIsLoading(false);
+              setLoadingPrompt(undefined);
+              setStreamingResponse(previewResponse);
+              setStreamingTurnId(id);
+              const turnResponse = previewResponse ? { ...previewResponse, answer: delta } : undefined;
+              setTurns((current) => [
+                ...current,
+                { id, role: "assistant", content: delta, response: turnResponse }
+              ]);
+            } else {
+              accumulatedText += delta;
+              const text = accumulatedText;
+              const id = assistantTurnId;
+              setTurns((current) =>
+                current.map((t) => (t.id === id ? { ...t, content: text } : t))
+              );
+            }
+            scrollToBottom();
+          } else if (event.type === "answer_done") {
+            // Claude has finished the answer text but is still emitting the
+            // JSON tail (visualType, refs, etc.). The streamed bubble can
+            // settle now — preview already carries the source chips, so the
+            // user sees a complete-looking response while metadata finalizes.
+            answerDone = true;
+          } else if (event.type === "answer_reset") {
+            // Server is retrying — clear the streamed-so-far text and wait
+            // for the final `complete` event to provide the corrected answer.
+            accumulatedText = "";
+            answerDone = false;
+            if (assistantTurnId) {
+              const id = assistantTurnId;
+              setTurns((current) =>
+                current.map((t) => (t.id === id ? { ...t, content: "" } : t))
+              );
+            }
+          } else if (event.type === "complete" && event.response) {
+            const data = event.response;
+            if (!image) clientCache.set(cacheKey, data);
+            setConversationState(data.conversationState ?? {});
+            if (assistantTurnId) {
+              const id = assistantTurnId;
+              // If the streamed text already matches the final answer (the
+              // common case), keep the streamed content as-is and only attach
+              // the full response payload. Avoids a visible reflow where the
+              // bubble briefly re-renders identical text on completion.
+              const textMatches = answerDone && accumulatedText === data.answer;
+              setTurns((current) =>
+                current.map((t) =>
+                  t.id === id
+                    ? { ...t, content: textMatches ? t.content : data.answer, response: data }
+                    : t
+                )
+              );
+            } else {
+              setTurns((current) => [
+                ...current,
+                { id: crypto.randomUUID(), role: "assistant", content: data.answer, response: data }
+              ]);
+            }
+            // Clear the writing indicator only now — the entire payload
+            // (answer + reasoning_summary + refs) has landed.
+            setStreamingTurnId(null);
+            scrollToBottom();
+          }
         }
-      ]);
+      }
     } catch (error) {
       if (error instanceof DOMException && error.name === "AbortError") {
         setTurns((current) => [
@@ -351,6 +461,8 @@ export default function Home() {
       activeRequestController.current = null;
       setIsLoading(false);
       setLoadingPrompt(undefined);
+      setStreamingResponse(undefined);
+      setStreamingTurnId(null);
     }
   }
 
@@ -431,6 +543,16 @@ export default function Home() {
                       ) : (
                         <MarkdownContent content={turn.content} />
                       )}
+                      {turn.id === streamingTurnId ? (
+                        <div className="mt-2 inline-flex items-center gap-2 text-xs text-text-secondary">
+                          <span className="flex items-end gap-1" aria-hidden>
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-brass" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-sage [animation-delay:120ms]" />
+                            <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-ember [animation-delay:240ms]" />
+                          </span>
+                          <span>Writing…</span>
+                        </div>
+                      ) : null}
                       {turn.imagePreview ? (
                         <Image src={turn.imagePreview} alt="Uploaded question context" width={360} height={240} className="mt-3 rounded-xl border border-black/[0.08]" />
                       ) : null}
@@ -577,7 +699,7 @@ export default function Home() {
           <VisualWorkspace
             response={displayedResponse}
             userQuestion={displayedUserQuestion}
-            isLoading={isLoading && !pinnedTurnId}
+            isLoading={isLoading && !pinnedTurnId && !streamingResponse}
           />
         </div>
       </div>
