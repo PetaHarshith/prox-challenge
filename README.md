@@ -2,7 +2,9 @@
 
 A garage-side expert for the Vulcan OmniPro 220: ask a question, get the answer, the diagram, the checklist, or the manual image that actually helps.
 
-Hosted demo: <https://prox-challenge-gamma.vercel.app/>
+Hosted Website: <https://prox-challenge-gamma.vercel.app/>
+
+Video Demo: <https://drive.google.com/file/d/1jidbqLx1CTExQaUbTLbZFz1nkJ1g19-9/view?usp=sharing/>
 
 Built in one focused day.
 
