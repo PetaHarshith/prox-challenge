@@ -73,7 +73,7 @@ export function extractSlots(message: string): PlannerSlots {
 // choose/compare phrasing or "X vs Y".
 
 const SETUP_RE =
-  /\b(connect|connects|connected|connection|connecting|socket|sockets|polarity|ground|torch|electrode|hook ?up|cable|cables|plug|wire feed|setups?|set ?ups?|setting up|where (do|does|should) .* (go|plug|connect))\b/;
+  /\b(connect|connects|connected|connection|connecting|socket|sockets|polarity|ground|torch|electrode|hook ?up|cable|cables|plug|wire feed|wiring|wire (?:up|it up|them up)|how (?:do i|to|can i|should i) wire|setups?|set ?ups?|setting up|where (do|does|should) .* (go|plug|connect))\b/;
 
 const DUTY_RE =
   /\bduty\b|\bweld continuously\b|\bcontinuously at\b|\boverheat(?:ing)?\b|\bthermal shutdown\b|\b\d{2,3}\s*a(?:mp(?:s|erage)?)?\b/;
