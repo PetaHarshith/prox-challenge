@@ -122,8 +122,20 @@ The server returns typed visual specs. React renders diagrams, calculators, tabl
 **Beginner path without dumbing it down.**  
 Quick Setup asks four questions: location, gas, material, thickness. Then it recommends a process, wiring, gas setup, next step, and checklist.
 
-**No fake precision.**  
+**No fake precision.**
 When exact wire speed or voltage is not grounded in the extracted manual data, the app gives setup guidance and tells the user to use the machine's auto/synergic setting or chart instead of hallucinating numbers.
+
+## Multimodal responses and artifacts
+
+When the answer requires spatial or tabular information, the agent pairs the prose with a rendered visual: setup diagrams for wiring questions, duty-cycle calculators for thermal constraints, troubleshooting flows for defect diagnosis, and direct manual images when the source diagram matters.
+
+These visuals are not optional decoration. They are the primary mechanism for communicating information that is hard to describe in words alone — which cable goes where, how duty cycle converts into weld/rest time, which checks to run in order.
+
+The architecture uses structured visual specifications rather than freeform model-authored code. Each visual type (setup diagram, duty cycle, troubleshooting flow, manual image) is a pre-built React component keyed by intent. Claude does not emit HTML or SVG; the routing layer decides the intent, and the application renders the corresponding component with grounded data from the manual.
+
+This choice trades flexibility for correctness. A polarity diagram is safety-critical; allowing Claude to invent an SVG schematic could introduce errors a user might act on. By constraining visuals to deterministic, manual-grounded layouts, the agent guarantees accuracy while remaining multimodal and interactive.
+
+Some questions (general knowledge, explanations, fault-code lookups) route to text-only responses with no attached visual. When a visual would not add clarity, the system returns prose alone.
 
 ## UI
 
